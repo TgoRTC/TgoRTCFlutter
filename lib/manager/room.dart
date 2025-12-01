@@ -73,6 +73,7 @@ class RoomManager {
       ..on<RoomDisconnectedEvent>((event) {
         // disconnect
         _setConnectStatus(ConnectStatus.disconnected, "disconnected");
+        TgoRTC.instance.participantManager.getLocalParticipant().notifyLeave();
       })
       ..on<RoomAttemptReconnectEvent>((event) {
         // reconnect
@@ -81,6 +82,10 @@ class RoomManager {
       ..on<RoomConnectedEvent>((event) {
         // connected
         _setConnectStatus(ConnectStatus.connected, "connected");
+        TgoRTC.instance.participantManager
+            .getLocalParticipant()
+            .setLocalParticipant(room!.localParticipant!);
+        TgoRTC.instance.participantManager.getLocalParticipant().notifyJoined();
       })
       ..on<RoomReconnectingEvent>((event) {
         // connecting
@@ -113,7 +118,9 @@ class RoomManager {
     room?.dispose();
     listener?.cancelAll();
     listener?.dispose();
+    _listener = null;
     room = null;
     _currentRoomInfo = null;
+    TgoRTC.instance.participantManager.clear();
   }
 }

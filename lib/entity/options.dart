@@ -1,4 +1,4 @@
 class Options {
-  bool mirror = true;
+  bool mirror = false;
   bool debug = true;
 }

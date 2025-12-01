@@ -1,28 +1,48 @@
 import 'package:livekit_client/livekit_client.dart';
 import 'package:tgortcflutter/tgortc.dart';
 
-import '../entity/tgo_local_participant.dart';
-import '../entity/tgo_remote_participant.dart';
+import '../participant/tgo_participant.dart';
 import '../utils/logger.dart';
 
 class ParticipantManager {
   ParticipantManager._internal();
   static final ParticipantManager _instance = ParticipantManager._internal();
   static ParticipantManager get instance => _instance;
-  final List<Function(TgoRemoteParticipant)> _newParticipantListeners = [];
+  final List<Function(TgoParticipant)> _newParticipantListeners = [];
+  TgoParticipant? _localParticipant;
+  final Map<String, TgoParticipant> _remoteParticipants = {};
 
-  TgoLocalParticipant? getLocalParticipant() {
-    if (TgoRTC.instance.roomManager.room == null) {
-      return null;
+  TgoParticipant getLocalParticipant() {
+    if (TgoRTC.instance.roomManager.currentRoomInfo == null) {
+      throw StateError('Cannot get local participant: room info is null');
     }
-    var participant = TgoRTC.instance.roomManager.room!.localParticipant;
-    if (participant == null) {
-      return null;
+    var participant = TgoRTC.instance.roomManager.room?.localParticipant;
+    var loginUID = TgoRTC.instance.roomManager.currentRoomInfo!.loginUID;
+    if (_localParticipant == null) {
+      _localParticipant = TgoParticipant(loginUID, participant, null);
+    } else if (participant != null) {
+      // 更新内部的 LocalParticipant（如果之前创建时是 null）
+      _localParticipant!.setLocalParticipant(participant);
     }
-    return TgoLocalParticipant(participant);
+    return _localParticipant!;
   }
 
-  List<TgoRemoteParticipant> getRemoteParticipants() {
+  void clear() {
+    _localParticipant?.dispose();
+    _localParticipant = null;
+    for (var p in _remoteParticipants.values) {
+      p.dispose();
+    }
+    _remoteParticipants.clear();
+  }
+
+  List<TgoParticipant> getAllParticipants() {
+    final local = getLocalParticipant();
+    final remote = getRemoteParticipants();
+    return [local, ...remote];
+  }
+
+  List<TgoParticipant> getRemoteParticipants() {
     var participants =
         TgoRTC.instance.roomManager.room?.remoteParticipants ?? {};
     var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
@@ -33,7 +53,7 @@ class ParticipantManager {
       return [];
     }
 
-    List<TgoRemoteParticipant> list = [];
+    List<TgoParticipant> list = [];
     Set<String> addedUids = {};
 
     // 先遍历 uidList
@@ -45,14 +65,19 @@ class ParticipantManager {
           break;
         }
       }
-      list.add(TgoRemoteParticipant(uid, matchedParticipant));
+      // 使用缓存或创建新的
+      var tgoParticipant = _remoteParticipants[uid] ??=
+          TgoParticipant(uid, null, matchedParticipant);
+      list.add(tgoParticipant);
       addedUids.add(uid);
     }
 
     // 再添加 participants 中不在 uidList 的
     for (var p in participants.values) {
       if (!addedUids.contains(p.identity)) {
-        list.add(TgoRemoteParticipant(p.identity, p));
+        var tgoParticipant = _remoteParticipants[p.identity] ??=
+            TgoParticipant(p.identity, null, p);
+        list.add(tgoParticipant);
       }
     }
 
@@ -66,7 +91,7 @@ class ParticipantManager {
     }
 
     // 获取已存在的 uid 列表
-    var existingUids = getRemoteParticipants().map((p) => p.uid).toSet();
+    var existingUids = _remoteParticipants.keys.toSet();
 
     // 过滤掉已存在的 uid
     var newUids = uids.where((uid) => !existingUids.contains(uid)).toList();
@@ -90,48 +115,44 @@ class ParticipantManager {
       newUids = newUids.sublist(0, availableSlots);
     }
     for (var uid in newUids) {
-      _setNewParticipant(TgoRemoteParticipant(uid, null));
+      var tgoParticipant = TgoParticipant(uid, null, null);
+      _remoteParticipants[uid] = tgoParticipant;
+      _setNewParticipant(tgoParticipant);
     }
     roomInfo.uidList.addAll(newUids);
   }
 
   setParticipantJoin(RemoteParticipant participant) {
-    List<TgoRemoteParticipant> list = getRemoteParticipants();
-    for (var element in list) {
-      if (element.uid == participant.identity) {
-        element.setParticipant(participant);
-        return;
-      }
+    var tgoParticipant = _remoteParticipants[participant.identity];
+    if (tgoParticipant != null) {
+      tgoParticipant.setRemoteParticipant(participant);
+      return;
     }
 
     // new participant
-    var tgoParticipant =
-        TgoRemoteParticipant(participant.identity, participant);
+    tgoParticipant = TgoParticipant(participant.identity, null, participant);
+    _remoteParticipants[participant.identity] = tgoParticipant;
     _setNewParticipant(tgoParticipant);
-    list.add(tgoParticipant);
   }
 
   setParticipantLeave(RemoteParticipant participant) {
-    List<TgoRemoteParticipant> list = getRemoteParticipants();
-    for (var element in list) {
-      if (element.uid == participant.identity) {
-        element.setLeave();
-        return;
-      }
+    var tgoParticipant = _remoteParticipants[participant.identity];
+    if (tgoParticipant != null) {
+      tgoParticipant.notifyLeave();
     }
   }
 
-  _setNewParticipant(TgoRemoteParticipant participant) {
+  _setNewParticipant(TgoParticipant participant) {
     for (var element in _newParticipantListeners) {
       element(participant);
     }
   }
 
-  addNewParticipantListener(Function(TgoRemoteParticipant) listener) {
+  addNewParticipantListener(Function(TgoParticipant) listener) {
     _newParticipantListeners.add(listener);
   }
 
-  removeNewParticipantListener(Function(TgoRemoteParticipant) listener) {
+  removeNewParticipantListener(Function(TgoParticipant) listener) {
     _newParticipantListeners.remove(listener);
   }
 }
