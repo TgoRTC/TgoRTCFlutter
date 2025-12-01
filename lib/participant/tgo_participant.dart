@@ -44,6 +44,25 @@ class TgoParticipant {
       _connectionQualityListeners = [];
   final List<Function()> _joinedListeners = [];
   final List<Function()> _leaveListeners = [];
+  final List<Function()> _trackPublishedListeners = [];
+  final List<Function()> _trackUnpublishedListeners = [];
+
+  addTrackPublishedListener(Function() listener) {
+    _trackPublishedListeners.add(listener);
+  }
+
+  removeTrackPublishedListener(Function() listener) {
+    _trackPublishedListeners.remove(listener);
+  }
+
+  addTrackUnpublishedListener(Function() listener) {
+    _trackUnpublishedListeners.add(listener);
+  }
+
+  removeTrackUnpublishedListener(Function() listener) {
+    _trackUnpublishedListeners.remove(listener);
+  }
+
   addMicrophoneStatusListener(Function(bool enabled) listener) {
     _microphoneListeners.add(listener);
   }
@@ -159,6 +178,10 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(true);
           }
+        } else if (event.publication.source == TrackSource.microphone) {
+          for (var element in _microphoneListeners) {
+            element(true);
+          }
         }
       })
       ..on<LocalTrackPublishedEvent>((event) {
@@ -166,6 +189,37 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(true);
           }
+        } else if (event.publication.source == TrackSource.microphone) {
+          for (var element in _microphoneListeners) {
+            element(true);
+          }
+        }
+        for (var element in _trackPublishedListeners) {
+          element();
+        }
+      })
+      ..on<LocalTrackUnpublishedEvent>((event) {
+        for (var element in _trackUnpublishedListeners) {
+          element();
+        }
+      })
+      ..on<TrackPublishedEvent>((event) {
+        if (event.publication.source == TrackSource.camera) {
+          for (var element in _cameraListeners) {
+            element(true);
+          }
+        } else if (event.publication.source == TrackSource.microphone) {
+          for (var element in _microphoneListeners) {
+            element(true);
+          }
+        }
+        for (var element in _trackPublishedListeners) {
+          element();
+        }
+      })
+      ..on<TrackUnpublishedEvent>((event) {
+        for (var element in _trackUnpublishedListeners) {
+          element();
         }
       })
       ..on<ParticipantConnectionQualityUpdatedEvent>((event) {
