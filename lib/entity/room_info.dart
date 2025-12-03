@@ -10,6 +10,7 @@ class RoomInfo {
   String creatorUID;
   bool isP2P = true;
   List<String> uidList = [];
+  int timeout = 30;
   RoomInfo(this.roomName, this.token, this.url, this.loginUID, this.creatorUID);
 
   String getP2PToUID() {

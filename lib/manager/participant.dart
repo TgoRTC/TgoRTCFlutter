@@ -39,7 +39,9 @@ class ParticipantManager {
   List<TgoParticipant> getAllParticipants() {
     final local = getLocalParticipant();
     final remote = getRemoteParticipants();
-    return [local, ...remote];
+    // 去重：排除与本地相同 uid 的远程参与者
+    final filtered = remote.where((p) => p.uid != local.uid).toList();
+    return [local, ...filtered];
   }
 
   List<TgoParticipant> getRemoteParticipants() {
@@ -140,6 +142,10 @@ class ParticipantManager {
     if (tgoParticipant != null) {
       tgoParticipant.notifyLeave();
     }
+    // remove
+    _remoteParticipants.remove(participant.identity);
+    TgoRTC.instance.roomManager.currentRoomInfo?.uidList
+        .remove(participant.identity);
   }
 
   _setNewParticipant(TgoParticipant participant) {
