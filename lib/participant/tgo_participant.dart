@@ -2,7 +2,7 @@ import 'package:livekit_client/livekit_client.dart';
 import 'package:tgortcflutter/tgortc.dart';
 
 import '../entity/const.dart';
-import '../manager/audio.dart';
+import '../manager/tgo_audio_manager.dart';
 
 class TgoParticipant {
   LocalParticipant? _localParticipant;
@@ -199,6 +199,15 @@ class TgoParticipant {
         }
       })
       ..on<LocalTrackUnpublishedEvent>((event) {
+        if (event.publication.source == TrackSource.camera) {
+          for (var element in _cameraListeners) {
+            element(false);
+          }
+        } else if (event.publication.source == TrackSource.microphone) {
+          for (var element in _microphoneListeners) {
+            element(false);
+          }
+        }
         for (var element in _trackUnpublishedListeners) {
           element();
         }
@@ -218,8 +227,28 @@ class TgoParticipant {
         }
       })
       ..on<TrackUnpublishedEvent>((event) {
+        if (event.publication.source == TrackSource.camera) {
+          for (var element in _cameraListeners) {
+            element(false);
+          }
+        } else if (event.publication.source == TrackSource.microphone) {
+          for (var element in _microphoneListeners) {
+            element(false);
+          }
+        }
         for (var element in _trackUnpublishedListeners) {
           element();
+        }
+      })
+      ..on<TrackUnsubscribedEvent>((event) {
+        if (event.publication.source == TrackSource.camera) {
+          for (var element in _cameraListeners) {
+            element(false);
+          }
+        } else if (event.publication.source == TrackSource.microphone) {
+          for (var element in _microphoneListeners) {
+            element(false);
+          }
         }
       })
       ..on<ParticipantConnectionQualityUpdatedEvent>((event) {
@@ -284,35 +313,38 @@ class TgoParticipant {
   }
 
   // local only
-  Future<LocalTrackPublication?> setCameraEnabled(bool enabled) async {
-    if (_localParticipant == null) return null;
-    return await _localParticipant!.setCameraEnabled(enabled);
+  Future<void> setCameraEnabled(bool enabled) async {
+    if (_localParticipant == null) return;
+    await _localParticipant!.setCameraEnabled(enabled);
   }
 
   // local only
-  Future<LocalTrackPublication?> setMicrophoneEnabled(bool enabled) async {
-    if (_localParticipant == null) return null;
-    return await _localParticipant!.setMicrophoneEnabled(enabled);
+  Future<void> setMicrophoneEnabled(bool enabled) async {
+    if (_localParticipant == null) return;
+    await _localParticipant!.setMicrophoneEnabled(enabled);
   }
 
   // local only
-  Future<LocalTrackPublication?> setScreenShareEnabled(bool enabled) async {
-    if (_localParticipant == null) return null;
-    return await _localParticipant!.setScreenShareEnabled(enabled);
+  Future<void> setScreenShareEnabled(bool enabled) async {
+    if (_localParticipant == null) return;
+    await _localParticipant!.setScreenShareEnabled(enabled);
   }
 
+  // local only
   bool getMicrophoneEnabled() {
     return _localParticipant?.isMicrophoneEnabled() ??
         _remoteParticipant?.isMicrophoneEnabled() ??
         false;
   }
 
+  // local only
   bool getCameraEnabled() {
     return _localParticipant?.isCameraEnabled() ??
         _remoteParticipant?.isCameraEnabled() ??
         false;
   }
 
+  // local only
   bool getScreenShareEnabled() {
     return _localParticipant?.isScreenShareEnabled() ??
         _remoteParticipant?.isScreenShareEnabled() ??
@@ -322,16 +354,16 @@ class TgoParticipant {
   // local only
   Future<void> toggleSpeakerphone() async {
     if (_localParticipant == null) return;
-    await AudioManager.instance.toggleSpeakerphone();
+    await TgoAudioManager.instance.toggleSpeakerphone();
     for (var listener in _speakerListeners) {
-      listener(AudioManager.instance.isSpeakerOn);
+      listener(TgoAudioManager.instance.isSpeakerOn);
     }
   }
 
   // local only
   Future<void> setSpeakerphoneOn(bool on) async {
     if (_localParticipant == null) return;
-    await AudioManager.instance.setSpeakerphoneOn(on);
+    await TgoAudioManager.instance.setSpeakerphoneOn(on);
     for (var listener in _speakerListeners) {
       listener(on);
     }
@@ -340,7 +372,7 @@ class TgoParticipant {
   // local only
   bool getSpeakerEnabled() {
     if (_localParticipant == null) return false;
-    return AudioManager.instance.isSpeakerOn;
+    return TgoAudioManager.instance.isSpeakerOn;
   }
 
   setLocalParticipant(LocalParticipant participant) {
@@ -405,6 +437,8 @@ class TgoParticipant {
     _connectionQualityListeners.clear();
     _joinedListeners.clear();
     _leaveListeners.clear();
+    _trackPublishedListeners.clear();
+    _trackUnpublishedListeners.clear();
     _listener?.dispose();
     _listener = null;
   }

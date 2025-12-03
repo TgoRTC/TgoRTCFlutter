@@ -5,10 +5,10 @@ import '../entity/const.dart';
 import '../entity/room_info.dart';
 import '../utils/logger.dart';
 
-class RoomManager {
-  RoomManager._internal();
-  static final RoomManager _instance = RoomManager._internal();
-  static RoomManager get instance => _instance;
+class TgoRoomManager {
+  TgoRoomManager._internal();
+  static final TgoRoomManager _instance = TgoRoomManager._internal();
+  static TgoRoomManager get instance => _instance;
 
   final List<Function(ConnectStatus status, String reason)> _connectListeners =
       [];

@@ -4,10 +4,11 @@ import 'package:tgortcflutter/tgortc.dart';
 import '../participant/tgo_participant.dart';
 import '../utils/logger.dart';
 
-class ParticipantManager {
-  ParticipantManager._internal();
-  static final ParticipantManager _instance = ParticipantManager._internal();
-  static ParticipantManager get instance => _instance;
+class TgoParticipantManager {
+  TgoParticipantManager._internal();
+  static final TgoParticipantManager _instance =
+      TgoParticipantManager._internal();
+  static TgoParticipantManager get instance => _instance;
   final List<Function(TgoParticipant)> _newParticipantListeners = [];
   TgoParticipant? _localParticipant;
   final Map<String, TgoParticipant> _remoteParticipants = {};
@@ -49,7 +50,7 @@ class ParticipantManager {
         TgoRTC.instance.roomManager.room?.remoteParticipants ?? {};
     var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
     var uidList = roomInfo?.uidList ?? [];
-
+    var loginUID = roomInfo?.loginUID;
     // 两个都为空，返回空数组
     if (participants.isEmpty && uidList.isEmpty) {
       return [];
@@ -60,6 +61,7 @@ class ParticipantManager {
 
     // 先遍历 uidList
     for (var uid in uidList) {
+      if (uid == loginUID) continue;
       RemoteParticipant? matchedParticipant;
       for (var p in participants.values) {
         if (p.identity == uid) {
@@ -132,6 +134,10 @@ class ParticipantManager {
     }
 
     // new participant
+    var uidList = TgoRTC.instance.roomManager.currentRoomInfo?.uidList;
+    if (uidList != null && !uidList.contains(participant.identity)) {
+      uidList.add(participant.identity);
+    }
     tgoParticipant = TgoParticipant(participant.identity, null, participant);
     _remoteParticipants[participant.identity] = tgoParticipant;
     _setNewParticipant(tgoParticipant);

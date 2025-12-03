@@ -55,7 +55,7 @@
 | `ParticipantManager` | 参与者管理，缓存本地/远程参与者 |
 | `TgoParticipant` | 参与者封装，提供状态监听 |
 | `TgoTrackRenderer` | 视频轨道渲染 |
-| `AudioManager` | 音频管理，扬声器切换 |
+| `TgoAudioManager` | 音频管理，扬声器切换 |
 
 ## 使用示例
 

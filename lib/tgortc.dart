@@ -1,6 +1,6 @@
 import 'entity/options.dart';
-import 'manager/participant.dart';
-import 'manager/room.dart';
+import 'manager/tgo_participant_manager.dart';
+import 'manager/tgo_room_manager.dart';
 
 class TgoRTC {
   TgoRTC._internal();
@@ -12,7 +12,7 @@ class TgoRTC {
   }
 
   // room manager
-  RoomManager roomManager = RoomManager.instance;
+  TgoRoomManager roomManager = TgoRoomManager.instance;
   // participant manager
-  ParticipantManager participantManager = ParticipantManager.instance;
+  TgoParticipantManager participantManager = TgoParticipantManager.instance;
 }
