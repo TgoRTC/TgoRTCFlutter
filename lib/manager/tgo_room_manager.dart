@@ -113,8 +113,15 @@ class TgoRoomManager {
   }
 
   // leave room
-  leaveRoom() {
-    room?.disconnect();
+  Future<void> leaveRoom() async {
+    try {
+      await room?.disconnect().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => null,
+          );
+    } catch (e) {
+      // ignore disconnect errors
+    }
     room?.dispose();
     listener?.cancelAll();
     listener?.dispose();
