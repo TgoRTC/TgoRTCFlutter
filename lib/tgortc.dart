@@ -1,4 +1,5 @@
 import 'entity/options.dart';
+import 'manager/tgo_audio_manager.dart';
 import 'manager/tgo_participant_manager.dart';
 import 'manager/tgo_room_manager.dart';
 
@@ -15,4 +16,6 @@ class TgoRTC {
   TgoRoomManager roomManager = TgoRoomManager.instance;
   // participant manager
   TgoParticipantManager participantManager = TgoParticipantManager.instance;
+  // audio manager
+  TgoAudioManager audioManager = TgoAudioManager.instance;
 }
