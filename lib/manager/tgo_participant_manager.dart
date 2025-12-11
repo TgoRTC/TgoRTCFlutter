@@ -37,15 +37,19 @@ class TgoParticipantManager {
     _remoteParticipants.clear();
   }
 
-  List<TgoParticipant> getAllParticipants() {
+  /// 获取所有参与者列表
+  /// [includeTimeout] 是否包含已超时的参与者，默认 false
+  List<TgoParticipant> getAllParticipants({bool includeTimeout = false}) {
     final local = getLocalParticipant();
-    final remote = getRemoteParticipants();
+    final remote = getRemoteParticipants(includeTimeout: includeTimeout);
     // 去重：排除与本地相同 uid 的远程参与者
     final filtered = remote.where((p) => p.uid != local.uid).toList();
     return [local, ...filtered];
   }
 
-  List<TgoParticipant> getRemoteParticipants() {
+  /// 获取远程参与者列表
+  /// [includeTimeout] 是否包含已超时的参与者，默认 false
+  List<TgoParticipant> getRemoteParticipants({bool includeTimeout = false}) {
     var participants =
         TgoRTC.instance.roomManager.room?.remoteParticipants ?? {};
     var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
@@ -72,7 +76,16 @@ class TgoParticipantManager {
       // 使用缓存或创建新的
       var tgoParticipant = _remoteParticipants[uid] ??=
           TgoParticipant(uid, null, matchedParticipant);
-      list.add(tgoParticipant);
+
+      // 如果已超时但现在有 remoteParticipant，取消超时状态
+      if (tgoParticipant.isTimeout && matchedParticipant != null) {
+        tgoParticipant.setTimeout(false);
+      }
+
+      // 根据 includeTimeout 决定是否添加
+      if (includeTimeout || !tgoParticipant.isTimeout) {
+        list.add(tgoParticipant);
+      }
       addedUids.add(uid);
     }
 
@@ -81,6 +94,10 @@ class TgoParticipantManager {
       if (!addedUids.contains(p.identity)) {
         var tgoParticipant = _remoteParticipants[p.identity] ??=
             TgoParticipant(p.identity, null, p);
+        // 实际已加入的参与者，取消超时状态
+        if (tgoParticipant.isTimeout) {
+          tgoParticipant.setTimeout(false);
+        }
         list.add(tgoParticipant);
       }
     }

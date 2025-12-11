@@ -9,6 +9,47 @@ class TgoParticipant {
   RemoteParticipant? _remoteParticipant;
   EventsListener<ParticipantEvent>? _listener;
   final String uid;
+
+  /// 参与者创建时间
+  final DateTime _createdAt = DateTime.now();
+
+  /// 是否已超时（未在规定时间内加入）
+  bool _isTimeout = false;
+
+  /// 获取创建时间
+  DateTime get createdAt => _createdAt;
+
+  /// 是否已超时
+  bool get isTimeout => _isTimeout;
+
+  /// 设置超时状态
+  void setTimeout(bool value) {
+    _isTimeout = value;
+    if (value) {
+      _notifyTimeout();
+    }
+  }
+
+  /// 超时监听器
+  final List<Function()> _timeoutListeners = [];
+
+  /// 添加超时监听
+  void addTimeoutListener(Function() listener) {
+    _timeoutListeners.add(listener);
+  }
+
+  /// 移除超时监听
+  void removeTimeoutListener(Function() listener) {
+    _timeoutListeners.remove(listener);
+  }
+
+  /// 通知超时
+  void _notifyTimeout() {
+    for (var listener in _timeoutListeners) {
+      listener();
+    }
+  }
+
   TgoParticipant(this.uid, this._localParticipant, this._remoteParticipant) {
     _setupListener();
   }
@@ -31,6 +72,9 @@ class TgoParticipant {
 
   bool get isLocal =>
       uid == TgoRTC.instance.roomManager.currentRoomInfo?.loginUID;
+
+  /// 是否已加入房间（本地或远程参与者已有效）
+  bool get hasJoined => _localParticipant != null || _remoteParticipant != null;
 
   final List<Function(bool enabled)> _microphoneListeners = [];
   final List<Function(bool enabled)> _cameraListeners = [];
@@ -361,9 +405,11 @@ class TgoParticipant {
   }
 
   // local only
-  Future<void> setSpeakerphoneOn(bool on) async {
+  Future<void> setSpeakerphoneOn(bool on,
+      {bool forceSpeakerOutput = false}) async {
     if (_localParticipant == null) return;
-    await TgoAudioManager.instance.setSpeakerphoneOn(on);
+    await TgoAudioManager.instance
+        .setSpeakerphoneOn(on, forceSpeakerOutput: forceSpeakerOutput);
     for (var listener in _speakerListeners) {
       listener(on);
     }
