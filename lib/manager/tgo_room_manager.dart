@@ -145,7 +145,7 @@ class TgoRoomManager {
       if (participant.isLocal) continue;
 
       // 如果已经加入（有 remoteParticipant），取消超时状态
-      if (participant.hasJoined) {
+      if (participant.isJoined) {
         if (participant.isTimeout) {
           participant.setTimeout(false);
         }

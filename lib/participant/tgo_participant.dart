@@ -73,9 +73,6 @@ class TgoParticipant {
   bool get isLocal =>
       uid == TgoRTC.instance.roomManager.currentRoomInfo?.loginUID;
 
-  /// 是否已加入房间（本地或远程参与者已有效）
-  bool get hasJoined => _localParticipant != null || _remoteParticipant != null;
-
   final List<Function(bool enabled)> _microphoneListeners = [];
   final List<Function(bool enabled)> _cameraListeners = [];
   final List<Function(bool enabled)> _speakerListeners = [];
