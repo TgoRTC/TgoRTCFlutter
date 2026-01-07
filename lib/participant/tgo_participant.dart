@@ -2,13 +2,50 @@ import 'package:livekit_client/livekit_client.dart';
 import 'package:tgortcflutter/tgortc.dart';
 
 import '../entity/const.dart';
+import '../entity/video_info.dart';
 import '../manager/tgo_audio_manager.dart';
+import '../utils/logger.dart';
+
+/// 视频信息变化回调类型
+typedef VideoInfoListener = void Function(VideoInfo info);
 
 class TgoParticipant {
   LocalParticipant? _localParticipant;
   RemoteParticipant? _remoteParticipant;
   EventsListener<ParticipantEvent>? _listener;
   final String uid;
+
+  // 视频信息相关
+  final List<VideoInfoListener> _videoInfoListeners = [];
+  VideoInfo _currentVideoInfo = VideoInfo.empty;
+  EventsListener<TrackEvent>? _videoTrackListener;
+
+  /// 获取当前视频信息
+  VideoInfo get currentVideoInfo => _currentVideoInfo;
+
+  /// 添加视频信息监听器
+  void addVideoInfoListener(VideoInfoListener listener) {
+    _videoInfoListeners.add(listener);
+    // 如果当前有有效的视频信息，立即回调
+    if (_currentVideoInfo.isValid) {
+      listener(_currentVideoInfo);
+    }
+  }
+
+  /// 移除视频信息监听器
+  void removeVideoInfoListener(VideoInfoListener listener) {
+    _videoInfoListeners.remove(listener);
+  }
+
+  /// 通知所有监听器视频信息变化
+  void _notifyVideoInfoChanged(VideoInfo info) {
+    if (_currentVideoInfo == info) return; // 无变化则不通知
+    _currentVideoInfo = info;
+    Logger.info('[Video] $uid stats updated: $info');
+    for (var listener in _videoInfoListeners) {
+      listener(info);
+    }
+  }
 
   /// 参与者创建时间
   final DateTime _createdAt = DateTime.now();
@@ -219,6 +256,11 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(true);
           }
+          // 订阅远程视频统计信息
+          final track = event.track;
+          if (track is RemoteVideoTrack) {
+            _subscribeToVideoStats(track);
+          }
         } else if (event.publication.source == TrackSource.microphone) {
           for (var element in _microphoneListeners) {
             element(true);
@@ -229,6 +271,11 @@ class TgoParticipant {
         if (event.publication.source == TrackSource.camera) {
           for (var element in _cameraListeners) {
             element(true);
+          }
+          // 订阅本地视频统计信息
+          final track = event.publication.track;
+          if (track is LocalVideoTrack) {
+            _subscribeToLocalVideoStats(track);
           }
         } else if (event.publication.source == TrackSource.microphone) {
           for (var element in _microphoneListeners) {
@@ -244,6 +291,8 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(false);
           }
+          // 取消订阅视频统计信息
+          _unsubscribeFromVideoStats();
         } else if (event.publication.source == TrackSource.microphone) {
           for (var element in _microphoneListeners) {
             element(false);
@@ -286,6 +335,8 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(false);
           }
+          // 取消订阅视频统计信息
+          _unsubscribeFromVideoStats();
         } else if (event.publication.source == TrackSource.microphone) {
           for (var element in _microphoneListeners) {
             element(false);
@@ -304,6 +355,63 @@ class TgoParticipant {
           listener(quality);
         }
       });
+  }
+
+  /// 订阅本地视频统计信息事件
+  void _subscribeToLocalVideoStats(LocalVideoTrack track) {
+    _unsubscribeFromVideoStats(); // 先清理旧的监听
+    _videoTrackListener = track.createListener();
+    _videoTrackListener!.on<VideoSenderStatsEvent>((event) {
+      final stats = event.stats;
+      if (stats.isEmpty) return;
+
+      // 获取第一个层级的信息
+      final primaryStats = stats.values.first;
+      final width = primaryStats.frameWidth?.toInt() ?? 0;
+      final height = primaryStats.frameHeight?.toInt() ?? 0;
+      final frameRate = primaryStats.framesPerSecond?.toDouble() ?? 0.0;
+      final bitrate = event.currentBitrate.toInt();
+
+      final info = VideoInfo(
+        width: width,
+        height: height,
+        bitrate: bitrate,
+        frameRate: frameRate,
+        layerId: primaryStats.rid,
+        qualityLimitationReason: primaryStats.qualityLimitationReason,
+      );
+
+      _notifyVideoInfoChanged(info);
+    });
+  }
+
+  /// 订阅远程视频统计信息事件
+  void _subscribeToVideoStats(RemoteVideoTrack track) {
+    _unsubscribeFromVideoStats(); // 先清理旧的监听
+    _videoTrackListener = track.createListener();
+    _videoTrackListener!.on<VideoReceiverStatsEvent>((event) {
+      final stats = event.stats;
+      final width = stats.frameWidth?.toInt() ?? 0;
+      final height = stats.frameHeight?.toInt() ?? 0;
+      final frameRate = stats.framesPerSecond?.toDouble() ?? 0.0;
+      final bitrate = event.currentBitrate.toInt();
+
+      final info = VideoInfo(
+        width: width,
+        height: height,
+        bitrate: bitrate,
+        frameRate: frameRate,
+      );
+
+      _notifyVideoInfoChanged(info);
+    });
+  }
+
+  /// 取消订阅视频统计信息事件
+  void _unsubscribeFromVideoStats() {
+    _videoTrackListener?.dispose();
+    _videoTrackListener = null;
+    _currentVideoInfo = VideoInfo.empty;
   }
 
   bool get isJoined => _localParticipant != null || _remoteParticipant != null;
@@ -482,6 +590,8 @@ class TgoParticipant {
     _leaveListeners.clear();
     _trackPublishedListeners.clear();
     _trackUnpublishedListeners.clear();
+    _videoInfoListeners.clear();
+    _unsubscribeFromVideoStats();
     _listener?.dispose();
     _listener = null;
   }
