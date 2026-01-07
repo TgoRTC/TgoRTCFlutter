@@ -11,7 +11,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final _serverController = TextEditingController(text: 'http://47.117.96.203:8080');
+  final _serverController = TextEditingController(text: '');
   final _roomController = TextEditingController();
   bool _isLoading = false;
   
