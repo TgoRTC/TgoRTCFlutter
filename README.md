@@ -22,8 +22,13 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  tgortcflutter: ^1.0.0
+  tgortcflutter: ^<latest-version>
 ```
+
+> 💡 Replace `<latest-version>` with the version shown in the badge above, or run:
+> ```bash
+> flutter pub add tgortcflutter
+> ```
 
 Then run:
 
