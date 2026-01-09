@@ -5,8 +5,6 @@
 
 A Flutter SDK for audio and video calling based on [LiveKit](https://livekit.io/). Provides easy-to-use APIs for room management, participant tracking, and media control.
 
-基于 LiveKit 的 Flutter 音视频通话 SDK，提供简洁易用的房间管理、参与者追踪和媒体控制 API。
-
 ## Features
 
 - 🎥 Video/Audio calling support
@@ -78,8 +76,11 @@ TgoRTC.instance.init(Options());
 
 ```dart
 final roomInfo = RoomInfo(
-  url: 'wss://your-livekit-server.com',
-  token: 'your-access-token',
+  'room-name',
+  'your-access-token',
+  'wss://your-livekit-server.com',
+  'your-user-id',
+  'creator-user-id',
 );
 
 await TgoRTC.instance.roomManager.joinRoom(roomInfo);
@@ -103,8 +104,8 @@ local.addJoinedListener(() => print('Joined room'));
 local.addLeaveListener(() => print('Left room'));
 
 // Media state changes
-local.addMicrophoneListener((enabled) => print('Microphone: $enabled'));
-local.addCameraListener((enabled) => print('Camera: $enabled'));
+local.addMicrophoneStatusListener((enabled) => print('Microphone: $enabled'));
+local.addCameraStatusListener((enabled) => print('Camera: $enabled'));
 local.addSpeakingListener((speaking) => print('Speaking: $speaking'));
 ```
 
@@ -119,22 +120,23 @@ await local.setMicrophoneEnabled(true);
 await local.switchCamera();
 
 // Switch audio output
-TgoRTC.instance.audioManager.setSpeakerphoneEnabled(true);
+await TgoRTC.instance.audioManager.setSpeakerphoneOn(true);
 ```
 
 ### Render Video
 
 ```dart
-TgoTrackRenderer(
-  participant: participant,
-  videoInfo: VideoInfo.camera,
-)
+final renderer = TgoTrackRenderer();
+renderer.setParticipant(participant);
+
+// In your widget tree
+return renderer.build();
 ```
 
 ### Leave Room
 
 ```dart
-TgoRTC.instance.roomManager.leaveRoom();
+await TgoRTC.instance.roomManager.leaveRoom();
 ```
 
 ## Architecture
