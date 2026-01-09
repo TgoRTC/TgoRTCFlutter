@@ -57,12 +57,13 @@ class TgoRTCApi {
 
   String _getApiBase() {
     String url = baseUrl.trim();
+    // 移除末尾的斜杠
+    while (url.endsWith('/')) {
+      url = url.substring(0, url.length - 1);
+    }
+    // 只有在没有协议前缀时才添加 http://
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'http://$url';
-    }
-    // 移除末尾的斜杠
-    if (url.endsWith('/')) {
-      url = url.substring(0, url.length - 1);
     }
     return url;
   }
