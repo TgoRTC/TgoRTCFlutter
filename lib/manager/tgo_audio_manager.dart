@@ -2,6 +2,23 @@ import 'dart:async';
 
 import 'package:livekit_client/livekit_client.dart';
 
+/// Manager for handling audio output and device changes.
+///
+/// This is a singleton class that provides audio control functionality
+/// such as switching between speaker and earpiece.
+///
+/// ## Usage
+///
+/// ```dart
+/// // Switch to speaker
+/// await TgoRTC.instance.audioManager.setSpeakerphoneOn(true);
+///
+/// // Toggle speaker
+/// await TgoRTC.instance.audioManager.toggleSpeakerphone();
+///
+/// // Check if speaker is on
+/// final isSpeakerOn = TgoRTC.instance.audioManager.isSpeakerOn;
+/// ```
 class TgoAudioManager {
   TgoAudioManager._internal() {
     _initDeviceListener();

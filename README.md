@@ -1,83 +1,185 @@
 # tgortcflutter
 
-基于 LiveKit 的 Flutter 音视频通话 SDK。
+[![pub package](https://img.shields.io/pub/v/tgortcflutter.svg)](https://pub.dev/packages/tgortcflutter)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-## 架构设计
+A Flutter SDK for audio and video calling based on [LiveKit](https://livekit.io/). Provides easy-to-use APIs for room management, participant tracking, and media control.
 
-### 参与者加入/离开事件流程
+基于 LiveKit 的 Flutter 音视频通话 SDK，提供简洁易用的房间管理、参与者追踪和媒体控制 API。
+
+## Features
+
+- 🎥 Video/Audio calling support
+- 👥 Participant management (local & remote)
+- 🎤 Microphone/Camera control
+- 🔊 Speaker/Earpiece switching
+- 📡 Real-time event listeners
+- 🔄 Easy integration with LiveKit backend
+
+## Installation
+
+Add this to your package's `pubspec.yaml` file:
+
+```yaml
+dependencies:
+  tgortcflutter: ^1.0.0
+```
+
+Then run:
+
+```bash
+flutter pub get
+```
+
+## Platform Setup
+
+Since this package is based on LiveKit and WebRTC, you need to configure platform-specific permissions:
+
+### iOS
+
+Add the following to your `ios/Runner/Info.plist`:
+
+```xml
+<key>NSCameraUsageDescription</key>
+<string>Camera access is required for video calls</string>
+<key>NSMicrophoneUsageDescription</key>
+<string>Microphone access is required for audio calls</string>
+```
+
+### Android
+
+Add the following permissions to your `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+```
+
+## Quick Start
+
+### Initialize SDK
+
+```dart
+import 'package:tgortcflutter/tgortc.dart';
+
+// Initialize with options
+TgoRTC.instance.init(Options());
+```
+
+### Join a Room
+
+```dart
+final roomInfo = RoomInfo(
+  url: 'wss://your-livekit-server.com',
+  token: 'your-access-token',
+);
+
+await TgoRTC.instance.roomManager.joinRoom(roomInfo);
+```
+
+### Get Participants
+
+```dart
+// Get local participant
+final local = TgoRTC.instance.participantManager.getLocalParticipant();
+
+// Get remote participants
+final remotes = TgoRTC.instance.participantManager.getRemoteParticipants();
+```
+
+### Listen to Events
+
+```dart
+// Join/Leave events
+local.addJoinedListener(() => print('Joined room'));
+local.addLeaveListener(() => print('Left room'));
+
+// Media state changes
+local.addMicrophoneListener((enabled) => print('Microphone: $enabled'));
+local.addCameraListener((enabled) => print('Camera: $enabled'));
+local.addSpeakingListener((speaking) => print('Speaking: $speaking'));
+```
+
+### Control Media
+
+```dart
+// Toggle camera/microphone
+await local.setCameraEnabled(true);
+await local.setMicrophoneEnabled(true);
+
+// Switch camera
+await local.switchCamera();
+
+// Switch audio output
+TgoRTC.instance.audioManager.setSpeakerphoneEnabled(true);
+```
+
+### Render Video
+
+```dart
+TgoTrackRenderer(
+  participant: participant,
+  videoInfo: VideoInfo.camera,
+)
+```
+
+### Leave Room
+
+```dart
+TgoRTC.instance.roomManager.leaveRoom();
+```
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    RoomManager                          │
-│  (监听 LiveKit RoomEvent)                                │
+│  (Listens to LiveKit RoomEvent)                         │
 ├─────────────────────────────────────────────────────────┤
-│  RoomConnectedEvent           → 本地加入                  │
-│  RoomDisconnectedEvent        → 本地离开                  │
-│  ParticipantConnectedEvent    → 远程加入                  │
-│  ParticipantDisconnectedEvent → 远程离开                  │
+│  RoomConnectedEvent           → Local join              │
+│  RoomDisconnectedEvent        → Local leave             │
+│  ParticipantConnectedEvent    → Remote join             │
+│  ParticipantDisconnectedEvent → Remote leave            │
 └─────────────────────────────────────────────────────────┘
                            ↓
 ┌─────────────────────────────────────────────────────────┐
 │                  ParticipantManager                     │
 ├─────────────────────────────────────────────────────────┤
-│  setParticipantJoin()  → 创建/更新 TgoParticipant        │
-│  setParticipantLeave() → 通知离开并清理                   │
+│  setParticipantJoin()  → Create/Update TgoParticipant   │
+│  setParticipantLeave() → Notify leave and cleanup       │
 └─────────────────────────────────────────────────────────┘
                            ↓
 ┌─────────────────────────────────────────────────────────┐
 │                   TgoParticipant                        │
 ├─────────────────────────────────────────────────────────┤
-│  notifyJoined()  → 通知 _joinedListeners                 │
-│  notifyLeave()   → 通知 _leaveListeners → dispose()     │
-│  (监听 ParticipantEvent: 麦克风/摄像头/说话状态)           │
-└─────────────────────────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────┐
-│                      业务层                              │
-│  participant.addJoinedListener(() => ...)               │
-│  participant.addLeaveListener(() => ...)                │
+│  notifyJoined()  → Notify _joinedListeners              │
+│  notifyLeave()   → Notify _leaveListeners → dispose()   │
+│  (Listens to ParticipantEvent: mic/camera/speaking)     │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 设计说明
+## Core Modules
 
-由于 LiveKit SDK 的限制：
-- `ParticipantDisconnectedEvent` 是 **RoomEvent**，不是 ParticipantEvent
-- 参与者断开时，participant 对象已失效，无法从内部监听
+| Module | Description |
+|--------|-------------|
+| `TgoRTC` | Main SDK entry point (singleton) |
+| `TgoRoomManager` | Room connection and event handling |
+| `TgoParticipantManager` | Local/remote participant management |
+| `TgoParticipant` | Participant wrapper with state listeners |
+| `TgoTrackRenderer` | Video track rendering widget |
+| `TgoAudioManager` | Audio output management |
 
-因此采用 **RoomManager 监听 → ParticipantManager 分发 → TgoParticipant 通知** 的设计模式。
+## Example
 
-## 核心模块
+Check the [example](example/) directory for a complete working example.
 
-| 模块 | 说明 |
-|-----|------|
-| `RoomManager` | 房间管理，连接/断开，监听房间事件 |
-| `ParticipantManager` | 参与者管理，缓存本地/远程参与者 |
-| `TgoParticipant` | 参与者封装，提供状态监听 |
-| `TgoTrackRenderer` | 视频轨道渲染 |
-| `TgoAudioManager` | 音频管理，扬声器切换 |
+## License
 
-## 使用示例
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-```dart
-// 加入房间
-await TgoRTC.instance.roomManager.joinRoom(roomInfo);
+## Contributing
 
-// 获取本地参与者
-var local = TgoRTC.instance.participantManager.getLocalParticipant();
-
-// 监听加入/离开
-local.addJoinedListener(() => print('已加入房间'));
-local.addLeaveListener(() => print('已离开房间'));
-
-// 监听麦克风/摄像头状态
-local.addMicrophoneListener((enabled) => print('麦克风: $enabled'));
-local.addCameraListener((enabled) => print('摄像头: $enabled'));
-
-// 切换摄像头/麦克风
-await local.setCameraEnabled(true);
-await local.setMicrophoneEnabled(true);
-
-// 离开房间
-TgoRTC.instance.roomManager.leaveRoom();
-```
+Contributions are welcome! Please feel free to submit a Pull Request.

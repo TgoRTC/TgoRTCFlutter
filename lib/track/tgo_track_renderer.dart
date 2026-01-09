@@ -3,8 +3,22 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:tgortcflutter/tgortc.dart';
 
-import '../participant/tgo_participant.dart';
-
+/// Video track renderer for displaying participant video.
+///
+/// Use this class to render video from a participant's camera or screen share.
+///
+/// ## Usage
+///
+/// ```dart
+/// final renderer = TgoTrackRenderer(
+///   source: TrackSource.camera,
+///   fit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+/// );
+/// renderer.setParticipant(participant);
+///
+/// // In your widget tree
+/// return renderer.build();
+/// ```
 class TgoTrackRenderer {
   TgoParticipant? _participant;
   TrackSource source;

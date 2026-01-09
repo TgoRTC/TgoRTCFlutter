@@ -1,9 +1,26 @@
 import 'package:livekit_client/livekit_client.dart';
 import 'package:tgortcflutter/tgortc.dart';
 
-import '../participant/tgo_participant.dart';
 import '../utils/logger.dart';
 
+/// Manager for handling local and remote participants in a room.
+///
+/// This is a singleton class that tracks all participants in the current room.
+///
+/// ## Usage
+///
+/// ```dart
+/// // Get local participant
+/// final local = TgoRTC.instance.participantManager.getLocalParticipant();
+///
+/// // Get all remote participants
+/// final remotes = TgoRTC.instance.participantManager.getRemoteParticipants();
+///
+/// // Listen for new participants
+/// TgoRTC.instance.participantManager.addNewParticipantListener((participant) {
+///   print('New participant: ${participant.uid}');
+/// });
+/// ```
 class TgoParticipantManager {
   TgoParticipantManager._internal();
   static final TgoParticipantManager _instance =

@@ -1,21 +1,23 @@
-/// 视频流信息（本地和远程通用）
+/// Video stream information (for both local and remote streams).
+///
+/// Contains resolution, bitrate, frame rate, and quality information.
 class VideoInfo {
-  /// 视频宽度
+  /// Video width in pixels.
   final int width;
 
-  /// 视频高度
+  /// Video height in pixels.
   final int height;
 
-  /// 当前比特率 (bps)
+  /// Current bitrate in bits per second (bps).
   final int bitrate;
 
-  /// 帧率
+  /// Current frame rate.
   final double frameRate;
 
-  /// 当前层级标识 (如 "f", "h", "q" 分别代表 full, half, quarter)
+  /// Current layer identifier (e.g., "f", "h", "q" for full, half, quarter).
   final String? layerId;
 
-  /// 质量限制原因 (bandwidth, cpu, other, none)
+  /// Quality limitation reason (bandwidth, cpu, other, none).
   final String? qualityLimitationReason;
 
   const VideoInfo({
@@ -27,7 +29,7 @@ class VideoInfo {
     this.qualityLimitationReason,
   });
 
-  /// 空的视频信息
+  /// Empty video info instance.
   static const empty = VideoInfo(
     width: 0,
     height: 0,
@@ -35,13 +37,13 @@ class VideoInfo {
     frameRate: 0,
   );
 
-  /// 是否有效
+  /// Returns true if the video info contains valid data.
   bool get isValid => width > 0 && height > 0;
 
-  /// 格式化的分辨率字符串
+  /// Returns formatted resolution string (e.g., "1920x1080").
   String get resolutionString => '${width}x$height';
 
-  /// 格式化的比特率字符串 (Kbps 或 Mbps)
+  /// Returns formatted bitrate string (Kbps or Mbps).
   String get bitrateString {
     if (bitrate >= 1000000) {
       return '${(bitrate / 1000000).toStringAsFixed(1)} Mbps';
@@ -75,4 +77,3 @@ class VideoInfo {
     return 'VideoInfo(resolution: $resolutionString, bitrate: $bitrateString, fps: ${frameRate.toStringAsFixed(1)}, layer: $layerId)';
   }
 }
-

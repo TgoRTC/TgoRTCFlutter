@@ -6,9 +6,32 @@ import '../entity/video_info.dart';
 import '../manager/tgo_audio_manager.dart';
 import '../utils/logger.dart';
 
-/// 视频信息变化回调类型
+/// Callback type for video info changes.
 typedef VideoInfoListener = void Function(VideoInfo info);
 
+/// Represents a participant in a room (local or remote).
+///
+/// Provides access to participant state and media controls.
+///
+/// ## Usage
+///
+/// ```dart
+/// // Get the local participant
+/// final local = TgoRTC.instance.participantManager.getLocalParticipant();
+///
+/// // Listen to microphone state changes
+/// local.addMicrophoneStatusListener((enabled) {
+///   print('Microphone: $enabled');
+/// });
+///
+/// // Control media (local participant only)
+/// await local.setCameraEnabled(true);
+/// await local.setMicrophoneEnabled(true);
+///
+/// // Listen to join/leave events
+/// local.addJoinedListener(() => print('Joined'));
+/// local.addLeaveListener(() => print('Left'));
+/// ```
 class TgoParticipant {
   LocalParticipant? _localParticipant;
   RemoteParticipant? _remoteParticipant;

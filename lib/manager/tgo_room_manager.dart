@@ -8,9 +8,28 @@ import '../entity/video_info.dart';
 import '../entity/room_info.dart';
 import '../utils/logger.dart';
 
-/// 本地视频信息变化回调类型
+/// Callback type for video info changes.
 typedef VideoInfoListener = void Function(VideoInfo info);
 
+/// Manager for handling room connection and events.
+///
+/// This is a singleton class that manages the connection to a LiveKit room.
+///
+/// ## Usage
+///
+/// ```dart
+/// // Join a room
+/// final roomInfo = RoomInfo(...);
+/// await TgoRTC.instance.roomManager.joinRoom(roomInfo);
+///
+/// // Listen to connection status
+/// TgoRTC.instance.roomManager.addConnectListener((roomName, status, reason) {
+///   print('Room $roomName: $status ($reason)');
+/// });
+///
+/// // Leave the room
+/// await TgoRTC.instance.roomManager.leaveRoom();
+/// ```
 class TgoRoomManager {
   TgoRoomManager._internal();
   static final TgoRoomManager _instance = TgoRoomManager._internal();
