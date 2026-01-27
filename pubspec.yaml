@@ -1,6 +1,6 @@
 name: tgortcflutter
 description: "A Flutter SDK for audio and video calling based on LiveKit. Provides easy-to-use APIs for room management, participant tracking, and media control."
-version: 1.0.0
+version: 1.0.1
 homepage: https://github.com/TgoRTC/TgoRTCFlutter
 repository: https://github.com/TgoRTC/TgoRTCFlutter
 issue_tracker: https://github.com/TgoRTC/TgoRTCFlutter/issues
