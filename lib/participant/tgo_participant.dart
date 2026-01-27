@@ -70,46 +70,6 @@ class TgoParticipant {
     }
   }
 
-  /// 参与者创建时间
-  final DateTime _createdAt = DateTime.now();
-
-  /// 是否已超时（未在规定时间内加入）
-  bool _isTimeout = false;
-
-  /// 获取创建时间
-  DateTime get createdAt => _createdAt;
-
-  /// 是否已超时
-  bool get isTimeout => _isTimeout;
-
-  /// 设置超时状态
-  void setTimeout(bool value) {
-    _isTimeout = value;
-    if (value) {
-      _notifyTimeout();
-    }
-  }
-
-  /// 超时监听器
-  final List<Function()> _timeoutListeners = [];
-
-  /// 添加超时监听
-  void addTimeoutListener(Function() listener) {
-    _timeoutListeners.add(listener);
-  }
-
-  /// 移除超时监听
-  void removeTimeoutListener(Function() listener) {
-    _timeoutListeners.remove(listener);
-  }
-
-  /// 通知超时
-  void _notifyTimeout() {
-    for (var listener in _timeoutListeners) {
-      listener();
-    }
-  }
-
   TgoParticipant(this.uid, this._localParticipant, this._remoteParticipant) {
     _setupListener();
   }

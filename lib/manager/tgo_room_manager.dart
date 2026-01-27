@@ -261,39 +261,23 @@ class TgoRoomManager {
     _currentVideoInfo = VideoInfo.empty;
   }
 
-  /// 开启超时检查定时器
+  /// 开启超时检查定时器：未在规定时间内加入的参与者直接删除，并通过 leave 事件通知 UI
   void _startTimeoutChecker(int timeoutSeconds) {
     _timeoutTimer?.cancel();
-    // 每秒检查一次
     _timeoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _checkParticipantsTimeout(timeoutSeconds);
     });
   }
 
-  /// 检查参与者是否超时
+  /// 检查参与者超时：未加入且超时的直接删除并触发 leave 通知
   void _checkParticipantsTimeout(int timeoutSeconds) {
     final now = DateTime.now();
-    // 获取所有远程参与者（包括已超时的，用于检查是否需要取消超时）
-    final participants = TgoRTC.instance.participantManager
-        .getRemoteParticipants(includeTimeout: true);
-
-    for (var participant in participants) {
-      // 跳过本地参与者
-      if (participant.isLocal) continue;
-
-      // 如果已经加入（有 remoteParticipant），取消超时状态
-      if (participant.isJoined) {
-        if (participant.isTimeout) {
-          participant.setTimeout(false);
-        }
-        continue;
-      }
-
-      // 如果未加入且超过超时时间，标记为超时
-      final elapsed = now.difference(participant.createdAt).inSeconds;
-      if (elapsed >= timeoutSeconds && !participant.isTimeout) {
-        participant.setTimeout(true);
-        Logger.info('参与者 ${participant.uid} 超时未加入');
+    final pending = TgoRTC.instance.participantManager
+        .getPendingParticipantCreatedAt();
+    for (var e in pending.entries) {
+      if (now.difference(e.value).inSeconds >= timeoutSeconds) {
+        TgoRTC.instance.participantManager.removeParticipantByUid(e.key);
+        Logger.info('参与者 ${e.key} 超时未加入，已移除');
       }
     }
   }

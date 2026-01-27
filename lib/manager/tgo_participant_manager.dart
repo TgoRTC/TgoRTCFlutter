@@ -29,6 +29,7 @@ class TgoParticipantManager {
   final List<Function(TgoParticipant)> _newParticipantListeners = [];
   TgoParticipant? _localParticipant;
   final Map<String, TgoParticipant> _remoteParticipants = {};
+  final Map<String, DateTime> _participantCreatedAt = {};
 
   TgoParticipant getLocalParticipant() {
     if (TgoRTC.instance.roomManager.currentRoomInfo == null) {
@@ -52,21 +53,20 @@ class TgoParticipantManager {
       p.dispose();
     }
     _remoteParticipants.clear();
+    _participantCreatedAt.clear();
   }
 
   /// 获取所有参与者列表
-  /// [includeTimeout] 是否包含已超时的参与者，默认 false
-  List<TgoParticipant> getAllParticipants({bool includeTimeout = false}) {
+  List<TgoParticipant> getAllParticipants() {
     final local = getLocalParticipant();
-    final remote = getRemoteParticipants(includeTimeout: includeTimeout);
+    final remote = getRemoteParticipants();
     // 去重：排除与本地相同 uid 的远程参与者
     final filtered = remote.where((p) => p.uid != local.uid).toList();
     return [local, ...filtered];
   }
 
   /// 获取远程参与者列表
-  /// [includeTimeout] 是否包含已超时的参与者，默认 false
-  List<TgoParticipant> getRemoteParticipants({bool includeTimeout = false}) {
+  List<TgoParticipant> getRemoteParticipants() {
     var participants =
         TgoRTC.instance.roomManager.room?.remoteParticipants ?? {};
     var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
@@ -91,29 +91,28 @@ class TgoParticipantManager {
         }
       }
       // 使用缓存或创建新的
-      var tgoParticipant = _remoteParticipants[uid] ??=
-          TgoParticipant(uid, null, matchedParticipant);
-
-      // 如果已超时但现在有 remoteParticipant，取消超时状态
-      if (tgoParticipant.isTimeout && matchedParticipant != null) {
-        tgoParticipant.setTimeout(false);
+      var tgoParticipant = _remoteParticipants[uid];
+      if (tgoParticipant == null) {
+        tgoParticipant = TgoParticipant(uid, null, matchedParticipant);
+        _remoteParticipants[uid] = tgoParticipant;
+        _participantCreatedAt[uid] = DateTime.now();
+      } else if (matchedParticipant != null) {
+        tgoParticipant.setRemoteParticipant(matchedParticipant);
       }
-
-      // 根据 includeTimeout 决定是否添加
-      if (includeTimeout || !tgoParticipant.isTimeout) {
-        list.add(tgoParticipant);
-      }
+      list.add(tgoParticipant);
       addedUids.add(uid);
     }
 
     // 再添加 participants 中不在 uidList 的
     for (var p in participants.values) {
       if (!addedUids.contains(p.identity)) {
-        var tgoParticipant = _remoteParticipants[p.identity] ??=
-            TgoParticipant(p.identity, null, p);
-        // 实际已加入的参与者，取消超时状态
-        if (tgoParticipant.isTimeout) {
-          tgoParticipant.setTimeout(false);
+        var tgoParticipant = _remoteParticipants[p.identity];
+        if (tgoParticipant == null) {
+          tgoParticipant = TgoParticipant(p.identity, null, p);
+          _remoteParticipants[p.identity] = tgoParticipant;
+          _participantCreatedAt[p.identity] = DateTime.now();
+        } else {
+          tgoParticipant.setRemoteParticipant(p);
         }
         list.add(tgoParticipant);
       }
@@ -122,9 +121,44 @@ class TgoParticipantManager {
     return list;
   }
 
-  inviteParticipant(List<String> uids) {
+  /// 获取未加入参与者的创建时间（uid -> createdAt），用于超时直接删除
+  Map<String, DateTime> getPendingParticipantCreatedAt() {
+    final m = <String, DateTime>{};
+    for (var e in _remoteParticipants.entries) {
+      if (!e.value.isJoined && _participantCreatedAt.containsKey(e.key)) {
+        m[e.key] = _participantCreatedAt[e.key]!;
+      }
+    }
+    return m;
+  }
+
+  /// 按 uid 直接删除参与者，会先通过 leave 事件通知 UI，再移除
+  void removeParticipantByUid(String uid) {
+    final tgoParticipant = _remoteParticipants[uid];
+    if(tgoParticipant == null || tgoParticipant.isJoined){
+      return;
+    }
+    tgoParticipant.notifyLeave();
+    _remoteParticipants.remove(uid);
+    _participantCreatedAt.remove(uid);
+    TgoRTC.instance.roomManager.currentRoomInfo?.uidList.remove(uid);
+  }
+
+  // 超时未接听
+  missed(String roomName,List<String> uids){
     var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
-    if (roomInfo == null) {
+    if (roomInfo == null || roomInfo.roomName != roomName) {
+      return;
+    }
+    for (var uid in uids) {
+      removeParticipantByUid(uid);
+    }
+  }
+
+  // 邀请
+  invite(String roomName, List<String> uids) {
+    var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
+    if (roomInfo == null || roomInfo.roomName != roomName) {
       return;
     }
 
@@ -155,6 +189,7 @@ class TgoParticipantManager {
     for (var uid in newUids) {
       var tgoParticipant = TgoParticipant(uid, null, null);
       _remoteParticipants[uid] = tgoParticipant;
+      _participantCreatedAt[uid] = DateTime.now();
       _setNewParticipant(tgoParticipant);
     }
     roomInfo.uidList.addAll(newUids);
@@ -182,8 +217,8 @@ class TgoParticipantManager {
     if (tgoParticipant != null) {
       tgoParticipant.notifyLeave();
     }
-    // remove
     _remoteParticipants.remove(participant.identity);
+    _participantCreatedAt.remove(participant.identity);
     TgoRTC.instance.roomManager.currentRoomInfo?.uidList
         .remove(participant.identity);
   }
