@@ -6,6 +6,11 @@ import '../entity/video_info.dart';
 import '../manager/tgo_audio_manager.dart';
 import '../utils/logger.dart';
 
+/// Dart 2.19 兼容的 firstOrNull 扩展
+extension IterableExtension<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
+}
+
 /// Callback type for video info changes.
 typedef VideoInfoListener = void Function(VideoInfo info);
 
@@ -327,13 +332,23 @@ class TgoParticipant {
         }
       })
       ..on<ParticipantConnectionQualityUpdatedEvent>((event) {
-        final quality = switch (event.connectionQuality) {
-          ConnectionQuality.excellent => TgoConnectionQuality.excellent,
-          ConnectionQuality.good => TgoConnectionQuality.good,
-          ConnectionQuality.poor => TgoConnectionQuality.poor,
-          ConnectionQuality.lost => TgoConnectionQuality.lost,
-          _ => TgoConnectionQuality.unknown,
-        };
+        TgoConnectionQuality quality;
+        switch (event.connectionQuality) {
+          case ConnectionQuality.excellent:
+            quality = TgoConnectionQuality.excellent;
+            break;
+          case ConnectionQuality.good:
+            quality = TgoConnectionQuality.good;
+            break;
+          case ConnectionQuality.poor:
+            quality = TgoConnectionQuality.poor;
+            break;
+          case ConnectionQuality.lost:
+            quality = TgoConnectionQuality.lost;
+            break;
+          default:
+            quality = TgoConnectionQuality.unknown;
+        }
         for (var listener in _connectionQualityListeners) {
           listener(quality);
         }

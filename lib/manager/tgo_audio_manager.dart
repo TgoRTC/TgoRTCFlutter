@@ -57,8 +57,8 @@ class TgoAudioManager {
   /// - [forceSpeakerOutput]: 仅 iOS 有效，如果为 true，即使连接了耳机/蓝牙也强制使用扬声器
   Future<void> setSpeakerphoneOn(bool on,
       {bool forceSpeakerOutput = false}) async {
-    await Hardware.instance
-        .setSpeakerphoneOn(on, forceSpeakerOutput: forceSpeakerOutput);
+    // 注意：鸿蒙版不支持 forceSpeakerOutput 参数
+    await Hardware.instance.setSpeakerphoneOn(on);
     _isSpeakerOn = on;
   }
 

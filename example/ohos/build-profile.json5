@@ -1,0 +1,87 @@
+{
+  "app": {
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "path_provider_ohos",
+      "srcPath": "../../../../../../.pub-cache/git/flutter_packages-b6d283d565f70c6aac7a241c2daeed10acc2c675/packages/path_provider/path_provider_ohos/ohos",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "connectivity_plus",
+      "srcPath": "../../../../../../.pub-cache/git/flutter_plus_plugins-a783b7f492983fb2ceab2e146d564d04ad758ff2/packages/connectivity_plus/connectivity_plus/ohos",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "device_info_plus",
+      "srcPath": "../../../../../../.pub-cache/git/flutter_plus_plugins-a783b7f492983fb2ceab2e146d564d04ad758ff2/packages/device_info_plus/device_info_plus/ohos",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "flutter_webrtc",
+      "srcPath": "../../../../../../.pub-cache/git/fluttertpc_flutter_webrtc-94a690ea7b61c0061a0ab641bedceda13ef2bafe/ohos",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "livekit_client",
+      "srcPath": "../../../../../../.pub-cache/git/fluttertpc_livekit_client-cef5a7ef2fd97649ccd4202fa78b03c104bd0da9/ohos",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

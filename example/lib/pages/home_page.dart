@@ -32,10 +32,21 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _requestPermissions() async {
-    await [
-      Permission.camera,
-      Permission.microphone,
-    ].request();
+    print('=== TgoRTC: _requestPermissions called ===');
+    try {
+      print('TgoRTC: Attempting to request camera and microphone permissions...');
+      await [
+        Permission.camera,
+        Permission.microphone,
+      ].request();
+      print('TgoRTC: Permission request completed successfully');
+    } catch (e, stackTrace) {
+      // 鸿蒙平台 permission_handler 不可用，忽略错误
+      print('TgoRTC: Permission request failed (expected on OHOS): $e');
+      print('TgoRTC: Stack trace: $stackTrace');
+      // 继续执行，不阻止进入房间
+    }
+    print('=== TgoRTC: _requestPermissions finished ===');
   }
 
   Future<void> _createRoom() async {
@@ -50,6 +61,7 @@ class _HomePageState extends State<HomePage> {
   static const String _defaultServerUrl = 'http://47.117.96.203:8080';
 
   Future<void> _handleRoom({required bool isCreator}) async {
+    print('=== TgoRTC: _handleRoom called, isCreator: $isCreator ===');
     if (_roomController.text.isEmpty) {
       _showError('请输入房间号');
       return;
@@ -58,7 +70,9 @@ class _HomePageState extends State<HomePage> {
     setState(() => _isLoading = true);
 
     try {
+      print('TgoRTC: About to call _requestPermissions...');
       await _requestPermissions();
+      print('TgoRTC: _requestPermissions returned, continuing to create/join room...');
 
       final serverUrl = _serverController.text.trim().isEmpty 
           ? _defaultServerUrl 
@@ -235,7 +249,7 @@ class _HomePageState extends State<HomePage> {
                 // 用户 ID 显示
                 const SizedBox(height: 32),
                 Text(
-                  '用户 ID: ${_uid.substring(0, 10)}...',
+                  '用户 ID: ${_uid.length > 10 ? _uid.substring(0, 10) : _uid}...',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 12,
