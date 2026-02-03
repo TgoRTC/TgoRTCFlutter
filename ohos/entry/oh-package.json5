@@ -1,4 +1,3 @@
-
 {
   "name": "entry",
   "version": "1.0.0",
@@ -7,6 +6,11 @@
   "author": "",
   "license": "",
   "dependencies": {
-  },
+    "@anthropic/tgortc": "file:../tgortc_library",
+    "path_provider_ohos": "file:../har/path_provider_ohos.har",
+    "connectivity_plus": "file:../har/connectivity_plus.har",
+    "device_info_plus": "file:../har/device_info_plus.har",
+    "flutter_webrtc": "file:../har/flutter_webrtc.har",
+    "livekit_client": "file:../har/livekit_client.har"
+  }
 }
-

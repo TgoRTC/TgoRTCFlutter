@@ -1,0 +1,10 @@
+{
+  "module": {
+    "name": "tgortc_library",
+    "type": "har",
+    "deviceTypes": [
+      "phone",
+      "tablet"
+    ]
+  }
+}

@@ -46,3 +46,5 @@ dependency_overrides:
     git:
       url: "https://gitcode.com/openharmony-sig/fluttertpc_livekit_client.git"
   meta: 1.8.0
+  # 解决 flutter_webrtc 与 flutter_test 的 collection 版本冲突
+  collection: 1.17.1

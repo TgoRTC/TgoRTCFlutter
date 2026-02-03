@@ -1,5 +1,3 @@
-
-
 {
   "modelVersion": "5.0.0",
   "name": "tgortcflutter",
@@ -15,6 +13,12 @@
     "@ohos/hypium": "1.0.6"
   },
   "overrides": {
-    "@ohos/flutter_ohos": "file:./har/flutter.har"
+    "@ohos/flutter_ohos": "file:./har/flutter.har",
+    "path_provider_ohos": "../../../../../../.pub-cache/git/flutter_packages-b6d283d565f70c6aac7a241c2daeed10acc2c675/packages/path_provider/path_provider_ohos/ohos",
+    "connectivity_plus": "../../../../../../.pub-cache/git/flutter_plus_plugins-a783b7f492983fb2ceab2e146d564d04ad758ff2/packages/connectivity_plus/connectivity_plus/ohos",
+    "device_info_plus": "../../../../../../.pub-cache/git/flutter_plus_plugins-a783b7f492983fb2ceab2e146d564d04ad758ff2/packages/device_info_plus/device_info_plus/ohos",
+    "flutter_webrtc": "../../../../../../.pub-cache/git/fluttertpc_flutter_webrtc-94a690ea7b61c0061a0ab641bedceda13ef2bafe/ohos",
+    "livekit_client": "../../../../../../.pub-cache/git/fluttertpc_livekit_client-cef5a7ef2fd97649ccd4202fa78b03c104bd0da9/ohos",
+    "@ohos/flutter_module": "file:./entry"
   }
 }

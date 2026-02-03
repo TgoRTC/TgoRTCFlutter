@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:tgortcflutter/bridge/tgortc_ohos_bridge.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Register the HarmonyOS bridge - CRITICAL for MethodChannel communication
+  TgoRTCOhosBridge.register();
+  
   runApp(const MyApp());
 }
 

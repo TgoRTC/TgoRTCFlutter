@@ -82,6 +82,18 @@
           ]
         }
       ]
+    },
+    {
+      "name": "tgortc_library",
+      "srcPath": "../../ohos/tgortc_library",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
     }
   ]
 }

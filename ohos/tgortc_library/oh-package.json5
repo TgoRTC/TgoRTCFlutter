@@ -1,0 +1,11 @@
+{
+  "name": "@anthropic/tgortc",
+  "version": "1.0.2",
+  "description": "TgoRTC Flutter SDK for HarmonyOS NEXT - 音视频通话SDK",
+  "main": "Index.ets",
+  "author": "TgoRTC Team",
+  "license": "MIT",
+  "dependencies": {
+    "@ohos/flutter_ohos": "file:../har/flutter.har"
+  }
+}
