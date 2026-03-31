@@ -25,6 +25,38 @@ run_step() {
   log "done: $description"
 }
 
+prepend_changelog_entry() {
+  local version="$1"
+  local today
+  today="$(date '+%Y-%m-%d')"
+
+  if grep -q "^## \[$version\]" CHANGELOG.md; then
+    log "CHANGELOG already contains $version"
+    return
+  fi
+
+  log "adding CHANGELOG entry for $version"
+  tmp_file="$(mktemp)"
+  {
+    echo "# Changelog"
+    echo
+    echo "All notable changes to this project will be documented in this file."
+    echo
+    echo "The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),"
+    echo "and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)."
+    echo
+    echo "## [$version] - $today"
+    echo
+    echo "### Changed"
+    echo
+    echo "- Prepare release $version."
+    echo
+    tail -n +7 CHANGELOG.md
+  } > "$tmp_file"
+  mv "$tmp_file" CHANGELOG.md
+  log "done: adding CHANGELOG entry for $version"
+}
+
 CURRENT_VERSION="$(grep '^version:' pubspec.yaml | awk '{print $2}')"
 
 if [[ $# -gt 1 ]]; then
@@ -69,13 +101,15 @@ if [[ "$CURRENT_VERSION" != "$VERSION" ]]; then
   log "done: updating pubspec.yaml version"
 fi
 
+prepend_changelog_entry "$VERSION"
+
 if git rev-parse "$TAG" >/dev/null 2>&1; then
   echo "Tag $TAG already exists locally"
   exit 1
 fi
 
 log "committing release version bump..."
-git add pubspec.yaml
+git add pubspec.yaml CHANGELOG.md
 git commit -m "Release $VERSION"
 log "done: committing release version bump"
 
