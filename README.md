@@ -204,24 +204,30 @@ Enable automated publishing for `tgortcflutter` in pub.dev:
 
 ### Release Steps
 
-1. Update version in `pubspec.yaml`
-2. Update `CHANGELOG.md`
-3. Commit and merge the changes into `main`
-4. Create and push a version tag
+1. Ensure the release commit is already merged into `main`
+2. Run the release script
 
 Example:
 
 ```bash
-./scripts/release.sh 1.0.2
+./scripts/release.sh
 ```
 
 This script will:
 
-- verify `pubspec.yaml` version matches `1.0.2`
+- auto-increment the patch version in `pubspec.yaml`
 - switch to `main`
 - pull the latest changes
-- create tag `v1.0.2`
+- commit the version bump to `main`
+- push the commit to `main`
+- create a matching version tag such as `v1.0.2`
 - push the tag to GitHub
+
+If you want to release a specific version manually, you can still pass it:
+
+```bash
+./scripts/release.sh 1.0.2
+```
 
 After the tag is pushed, `.github/workflows/publish.yml` will publish the package automatically.
 
