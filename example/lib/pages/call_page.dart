@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:tgortcflutter/tgortc.dart';
-import 'package:tgortcflutter/entity/room_info.dart';
-import 'package:tgortcflutter/entity/const.dart';
-import 'package:tgortcflutter/participant/tgo_participant.dart';
-import 'package:tgortcflutter/track/tgo_track_renderer.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:tgortcflutter/tgortc.dart';
 
 import '../services/tgortc_api.dart';
 
@@ -79,7 +76,9 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         micEnabled: true,
         cameraEnabled: true,
       );
-    } catch (e) {
+    } catch (e, s) {
+      debugPrint('[CallPage] joinRoom failed error=$e');
+      debugPrint('[CallPage] joinRoom failed stack=$s');
       if (mounted) {
         setState(() {
           _isConnecting = false;
@@ -103,8 +102,17 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           _setupLocalParticipantListeners();
           break;
         case ConnectStatus.connecting:
+        case ConnectStatus.reconnecting:
           _isConnecting = true;
           _statusMessage = '正在连接...';
+          break;
+        case ConnectStatus.reconnected:
+          _isConnected = true;
+          _isConnecting = false;
+          _statusMessage = '已重连';
+          _localParticipant = TgoRTC.instance.participantManager.getLocalParticipant();
+          _updateParticipants();
+          _setupLocalParticipantListeners();
           break;
         case ConnectStatus.disconnected:
           _isConnected = false;

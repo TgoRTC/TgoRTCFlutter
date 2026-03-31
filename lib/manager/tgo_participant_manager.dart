@@ -31,22 +31,35 @@ class TgoParticipantManager {
   final Map<String, TgoParticipant> _remoteParticipants = {};
   final Map<String, DateTime> _participantCreatedAt = {};
 
-  TgoParticipant getLocalParticipant() {
+  TgoParticipant? getLocalParticipant() {
     if (TgoRTC.instance.roomManager.currentRoomInfo == null) {
-      throw StateError('Cannot get local participant: room info is null');
+      Logger.info('[Participant] getLocalParticipant skipped: no current room');
+      return null;
     }
     var participant = TgoRTC.instance.roomManager.room?.localParticipant;
     var loginUID = TgoRTC.instance.roomManager.currentRoomInfo!.loginUID;
     if (_localParticipant == null) {
+      Logger.info(
+        '[Participant] create local participant uid=$loginUID '
+        'hasLiveKitParticipant=${participant != null}',
+      );
       _localParticipant = TgoParticipant(loginUID, participant, null);
     } else if (participant != null) {
       // 更新内部的 LocalParticipant（如果之前创建时是 null）
+      Logger.info(
+        '[Participant] refresh local participant uid=$loginUID '
+        'identity=${participant.identity}',
+      );
       _localParticipant!.setLocalParticipant(participant);
     }
-    return _localParticipant!;
+    return _localParticipant;
   }
 
   void clear() {
+    Logger.info(
+      '[Participant] clear local=${_localParticipant?.uid} '
+      'remote=${_remoteParticipants.keys.toList()}',
+    );
     _localParticipant?.dispose();
     _localParticipant = null;
     for (var p in _remoteParticipants.values) {
@@ -60,9 +73,8 @@ class TgoParticipantManager {
   List<TgoParticipant> getAllParticipants() {
     final local = getLocalParticipant();
     final remote = getRemoteParticipants();
-    // 去重：排除与本地相同 uid 的远程参与者
-    final filtered = remote.where((p) => p.uid != local.uid).toList();
-    return [local, ...filtered];
+    final filtered = remote.where((p) => p.uid != local?.uid).toList();
+    return local != null ? [local, ...filtered] : filtered;
   }
 
   /// 获取远程参与者列表
@@ -74,8 +86,15 @@ class TgoParticipantManager {
     var loginUID = roomInfo?.loginUID;
     // 两个都为空，返回空数组
     if (participants.isEmpty && uidList.isEmpty) {
+      Logger.info('[Participant] getRemoteParticipants empty');
       return [];
     }
+
+    Logger.info(
+      '[Participant] getRemoteParticipants start roomUids=$uidList '
+      'remoteParticipantKeys=${participants.keys.toList()} '
+      'cached=${_remoteParticipants.keys.toList()}',
+    );
 
     List<TgoParticipant> list = [];
     Set<String> addedUids = {};
@@ -93,10 +112,15 @@ class TgoParticipantManager {
       // 使用缓存或创建新的
       var tgoParticipant = _remoteParticipants[uid];
       if (tgoParticipant == null) {
+        Logger.info(
+          '[Participant] cache remote placeholder uid=$uid '
+          'hasLiveKitParticipant=${matchedParticipant != null}',
+        );
         tgoParticipant = TgoParticipant(uid, null, matchedParticipant);
         _remoteParticipants[uid] = tgoParticipant;
         _participantCreatedAt[uid] = DateTime.now();
       } else if (matchedParticipant != null) {
+        Logger.info('[Participant] update cached remote uid=$uid from room uidList');
         tgoParticipant.setRemoteParticipant(matchedParticipant);
       }
       list.add(tgoParticipant);
@@ -108,16 +132,24 @@ class TgoParticipantManager {
       if (!addedUids.contains(p.identity)) {
         var tgoParticipant = _remoteParticipants[p.identity];
         if (tgoParticipant == null) {
+          Logger.info(
+            '[Participant] add remote from room map uid=${p.identity} '
+            'notInUidList=true',
+          );
           tgoParticipant = TgoParticipant(p.identity, null, p);
           _remoteParticipants[p.identity] = tgoParticipant;
           _participantCreatedAt[p.identity] = DateTime.now();
         } else {
+          Logger.info('[Participant] refresh remote from room map uid=${p.identity}');
           tgoParticipant.setRemoteParticipant(p);
         }
         list.add(tgoParticipant);
       }
     }
 
+    Logger.info(
+      '[Participant] getRemoteParticipants result=${list.map((e) => '${e.uid}:${e.isJoined}').toList()}',
+    );
     return list;
   }
 
@@ -135,17 +167,25 @@ class TgoParticipantManager {
   /// 按 uid 直接删除参与者，会先通过 leave 事件通知 UI，再移除
   void removeParticipantByUid(String uid) {
     final tgoParticipant = _remoteParticipants[uid];
-    if(tgoParticipant == null || tgoParticipant.isJoined){
+    Logger.info(
+      '[Participant] removeParticipantByUid uid=$uid '
+      'exists=${tgoParticipant != null} joined=${tgoParticipant?.isJoined}',
+    );
+    if (tgoParticipant == null || tgoParticipant.isJoined) {
       return;
     }
-    tgoParticipant.notifyLeave();
     _remoteParticipants.remove(uid);
     _participantCreatedAt.remove(uid);
     TgoRTC.instance.roomManager.currentRoomInfo?.uidList.remove(uid);
+    tgoParticipant.notifyLeave();
   }
 
   // 超时未接听
-  missed(String roomName,List<String> uids){
+  void missed(String roomName, List<String> uids) {
+    removePendingParticipants(roomName, uids);
+  }
+
+  void removePendingParticipants(String roomName, List<String> uids) {
     var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
     if (roomInfo == null || roomInfo.roomName != roomName) {
       return;
@@ -156,9 +196,20 @@ class TgoParticipantManager {
   }
 
   // 邀请
-  invite(String roomName, List<String> uids) {
+  void invite(String roomName, List<String> uids) {
+    inviteParticipant(uids, roomName: roomName);
+  }
+
+  void inviteParticipant(List<String> uids, {String? roomName}) {
     var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
-    if (roomInfo == null || roomInfo.roomName != roomName) {
+    if (roomInfo == null) {
+      Logger.info('[Participant] inviteParticipant skipped: no current room');
+      return;
+    }
+    if (roomName != null && roomInfo.roomName != roomName) {
+      Logger.info(
+        '[Participant] inviteParticipant skipped: room mismatch current=${roomInfo.roomName} target=$roomName',
+      );
       return;
     }
 
@@ -169,6 +220,7 @@ class TgoParticipantManager {
     var newUids = uids.where((uid) => !existingUids.contains(uid)).toList();
 
     if (newUids.isEmpty) {
+      Logger.info('[Participant] inviteParticipant skipped: no new uids');
       return;
     }
 
@@ -187,6 +239,7 @@ class TgoParticipantManager {
       newUids = newUids.sublist(0, availableSlots);
     }
     for (var uid in newUids) {
+      Logger.info('[Participant] invite participant uid=$uid');
       var tgoParticipant = TgoParticipant(uid, null, null);
       _remoteParticipants[uid] = tgoParticipant;
       _participantCreatedAt[uid] = DateTime.now();
@@ -196,6 +249,10 @@ class TgoParticipantManager {
   }
 
   setParticipantJoin(RemoteParticipant participant) {
+    Logger.info(
+      '[Participant] join uid=${participant.identity} sid=${participant.sid} '
+      'cached=${_remoteParticipants.containsKey(participant.identity)}',
+    );
     var tgoParticipant = _remoteParticipants[participant.identity];
     if (tgoParticipant != null) {
       tgoParticipant.setRemoteParticipant(participant);
@@ -213,17 +270,24 @@ class TgoParticipantManager {
   }
 
   setParticipantLeave(RemoteParticipant participant) {
+    Logger.info(
+      '[Participant] leave uid=${participant.identity} sid=${participant.sid} '
+      'cached=${_remoteParticipants.containsKey(participant.identity)}',
+    );
     var tgoParticipant = _remoteParticipants[participant.identity];
-    if (tgoParticipant != null) {
-      tgoParticipant.notifyLeave();
-    }
     _remoteParticipants.remove(participant.identity);
     _participantCreatedAt.remove(participant.identity);
     TgoRTC.instance.roomManager.currentRoomInfo?.uidList
         .remove(participant.identity);
+    if (tgoParticipant != null) {
+      tgoParticipant.notifyLeave();
+    }
   }
 
   _setNewParticipant(TgoParticipant participant) {
+    Logger.info(
+      '[Participant] new participant uid=${participant.uid} joined=${participant.isJoined}',
+    );
     for (var element in _newParticipantListeners) {
       element(participant);
     }

@@ -5,19 +5,25 @@ import '../tgortc.dart';
 class Logger {
   static void debug(Object msg) {
     if (TgoRTC.instance.options.debug) {
-      developer.log("$msg", name: 'DEBUG');
+      final text = '[DEBUG] $msg';
+      developer.log(text, name: 'DEBUG');
+      print(text);
     }
   }
 
   static void info(Object msg) {
     if (TgoRTC.instance.options.debug) {
-      developer.log("$msg", name: 'INFO');
+      final text = '[INFO] $msg';
+      developer.log(text, name: 'INFO');
+      print(text);
     }
   }
 
   static void error(Object msg) {
     if (TgoRTC.instance.options.debug) {
-      developer.log("$msg", name: 'ERROR');
+      final text = '[ERROR] $msg';
+      developer.log(text, name: 'ERROR');
+      print(text);
     }
   }
 }

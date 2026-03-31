@@ -3,9 +3,6 @@ import 'dart:async';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:tgortcflutter/tgortc.dart';
 
-import '../entity/const.dart';
-import '../entity/video_info.dart';
-import '../entity/room_info.dart';
 import '../utils/logger.dart';
 
 /// Callback type for video info changes.
@@ -114,11 +111,20 @@ class TgoRoomManager {
   joinRoom(RoomInfo roomInfo,
       {micEnabled = false,
       cameraEnabled = false,
-      scrennShareEnabled = false}) async {
+      bool? screenShareEnabled,
+      bool? scrennShareEnabled}) async {
     if (_currentRoomInfo != null) {
       Logger.error("already in room");
       return;
     }
+    final enableScreenShare = screenShareEnabled ?? scrennShareEnabled ?? false;
+    final connectStopwatch = Stopwatch()..start();
+    Logger.info(
+      '[Room] joinRoom start room=${roomInfo.roomName} url=${roomInfo.url} '
+      'loginUID=${roomInfo.loginUID} rtcType=${roomInfo.rtcType} '
+      'uids=${roomInfo.uidList} mic=$micEnabled camera=$cameraEnabled '
+      'screen=$enableScreenShare timeout=${roomInfo.timeout}',
+    );
     _currentRoomInfo = roomInfo;
     _setConnectStatus(
         roomInfo.roomName, ConnectStatus.connecting, "connecting");
@@ -155,41 +161,85 @@ class TgoRoomManager {
     listener = room!.createListener();
     listener!
       ..on<RoomDisconnectedEvent>((event) {
+        Logger.info(
+          '[RoomEvent] disconnected room=${roomInfo.roomName} '
+          'reason=${event.reason} remoteParticipants=${room?.remoteParticipants.length}',
+        );
         // disconnect
         _setConnectStatus(
             roomInfo.roomName, ConnectStatus.disconnected, "disconnected");
-        TgoRTC.instance.participantManager.getLocalParticipant().notifyLeave();
+        TgoRTC.instance.participantManager.getLocalParticipant()?.notifyLeave();
       })
       ..on<RoomAttemptReconnectEvent>((event) {
+        Logger.info('[RoomEvent] attemptReconnect room=${roomInfo.roomName}');
         // reconnect
         _setConnectStatus(
-            roomInfo.roomName, ConnectStatus.connecting, "reconnecting");
+            roomInfo.roomName, ConnectStatus.reconnecting, "reconnecting");
       })
       ..on<RoomConnectedEvent>((event) {
+        Logger.info(
+          '[RoomEvent] connected room=${roomInfo.roomName} '
+          'local=${room?.localParticipant?.identity} '
+          'remoteParticipants=${room?.remoteParticipants.length} '
+          'elapsedMs=${connectStopwatch.elapsedMilliseconds}',
+        );
         // connected
         _setConnectStatus(
             roomInfo.roomName, ConnectStatus.connected, "connected");
         TgoRTC.instance.participantManager
             .getLocalParticipant()
-            .setLocalParticipant(room!.localParticipant!);
-        TgoRTC.instance.participantManager.getLocalParticipant().notifyJoined();
+            ?.setLocalParticipant(room!.localParticipant!);
+        TgoRTC.instance.participantManager.getLocalParticipant()?.notifyJoined();
+        for (final participant in room!.remoteParticipants.values) {
+          TgoRTC.instance.participantManager.setParticipantJoin(participant);
+        }
       })
       ..on<RoomReconnectingEvent>((event) {
-        // connecting
+        Logger.info('[RoomEvent] reconnecting room=${roomInfo.roomName}');
+        // reconnecting
         _setConnectStatus(
-            roomInfo.roomName, ConnectStatus.connecting, "connecting");
+            roomInfo.roomName, ConnectStatus.reconnecting, "reconnecting");
+      })
+      ..on<RoomReconnectedEvent>((event) {
+        Logger.info(
+          '[RoomEvent] reconnected room=${roomInfo.roomName} '
+          'local=${room?.localParticipant?.identity} '
+          'remoteParticipants=${room?.remoteParticipants.length}',
+        );
+        _setConnectStatus(
+            roomInfo.roomName, ConnectStatus.reconnected, "reconnected");
+        TgoRTC.instance.participantManager
+            .getLocalParticipant()
+            ?.setLocalParticipant(room!.localParticipant!);
+        TgoRTC.instance.participantManager.getLocalParticipant()?.notifyJoined();
       })
       ..on<ParticipantConnectedEvent>((event) {
+        Logger.info(
+          '[RoomEvent] participantConnected uid=${event.participant.identity} '
+          'sid=${event.participant.sid} '
+          'connectionQuality=${event.participant.connectionQuality} '
+          'remoteCount=${room?.remoteParticipants.length}',
+        );
         // remote join
         TgoRTC.instance.participantManager
             .setParticipantJoin(event.participant);
       })
       ..on<ParticipantDisconnectedEvent>((event) {
+        Logger.info(
+          '[RoomEvent] participantDisconnected uid=${event.participant.identity} '
+          'sid=${event.participant.sid} '
+          'remoteCount=${room?.remoteParticipants.length}',
+        );
         // remote leave
         TgoRTC.instance.participantManager
             .setParticipantLeave(event.participant);
       })
       ..on<LocalTrackPublishedEvent>((event) {
+        Logger.info(
+          '[RoomEvent] localTrackPublished kind=${event.publication.kind} '
+          'source=${event.publication.source} sid=${event.publication.sid} '
+          'track=${event.publication.track?.sid}',
+        );
         // 调试日志：打印本地发布的视频轨道信息
         final publication = event.publication;
         if (publication.kind == TrackType.VIDEO) {
@@ -207,21 +257,71 @@ class TgoRoomManager {
         }
       })
       ..on<LocalTrackUnpublishedEvent>((event) {
+        Logger.info(
+          '[RoomEvent] localTrackUnpublished kind=${event.publication.kind} '
+          'source=${event.publication.source} sid=${event.publication.sid}',
+        );
         // 本地轨道取消发布时清理
         if (event.publication.kind == TrackType.VIDEO) {
           _unsubscribeFromVideoStats();
         }
       });
-    await room!.connect(
-      roomInfo.url,
-      roomInfo.token,
-      fastConnectOptions: FastConnectOptions(
-        microphone: TrackOption(enabled: micEnabled),
-        camera: TrackOption(enabled: cameraEnabled),
-        screen: TrackOption(enabled: scrennShareEnabled),
-      ),
+    Logger.info(
+      '[Room] connect begin room=${roomInfo.roomName} '
+      'url=${roomInfo.url} tokenLength=${roomInfo.token.length}',
     );
+    try {
+      await room!.connect(
+        roomInfo.url,
+        roomInfo.token,
+      );
+      Logger.info(
+        '[Room] connect success room=${roomInfo.roomName} '
+        'local=${room?.localParticipant?.identity} '
+        'remoteParticipants=${room?.remoteParticipants.length} '
+        'elapsedMs=${connectStopwatch.elapsedMilliseconds}',
+      );
+    } catch (e, s) {
+      Logger.error(
+        '[Room] connect failed room=${roomInfo.roomName} '
+        'url=${roomInfo.url} elapsedMs=${connectStopwatch.elapsedMilliseconds} '
+        'errorType=${e.runtimeType} error=$e',
+      );
+      Logger.error('[Room] connect failed stack=$s');
+      rethrow;
+    } finally {
+      connectStopwatch.stop();
+    }
+
+    if (cameraEnabled) {
+      Logger.info('[Room] enable camera begin room=${roomInfo.roomName}');
+      await room!.localParticipant?.setCameraEnabled(true);
+      Logger.info('[Room] enable camera done room=${roomInfo.roomName}');
+    }
+    if (cameraEnabled || enableScreenShare) {
+      Logger.info(
+        '[Room] wait after video publish room=${roomInfo.roomName} '
+        'camera=$cameraEnabled screen=$enableScreenShare',
+      );
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+    if (micEnabled) {
+      Logger.info('[Room] enable microphone begin room=${roomInfo.roomName}');
+      await room!.localParticipant?.setMicrophoneEnabled(true);
+      Logger.info('[Room] enable microphone done room=${roomInfo.roomName}');
+    }
+    if (enableScreenShare) {
+      Logger.info('[Room] enable screen share begin room=${roomInfo.roomName}');
+      await Future.delayed(const Duration(milliseconds: 300));
+      await room!.localParticipant?.setScreenShareEnabled(true);
+      Logger.info('[Room] enable screen share done room=${roomInfo.roomName}');
+    }
+
     // 开启定时器检查参与者超时
+    Logger.info(
+      '[Room] start timeout checker room=${roomInfo.roomName} '
+      'timeout=${roomInfo.timeout}',
+    );
     _startTimeoutChecker(roomInfo.timeout);
   }
 
@@ -274,6 +374,12 @@ class TgoRoomManager {
     final now = DateTime.now();
     final pending = TgoRTC.instance.participantManager
         .getPendingParticipantCreatedAt();
+    if (pending.isNotEmpty) {
+      Logger.info(
+        '[Room] timeout check pending=${pending.keys.toList()} '
+        'timeoutSeconds=$timeoutSeconds',
+      );
+    }
     for (var e in pending.entries) {
       if (now.difference(e.value).inSeconds >= timeoutSeconds) {
         TgoRTC.instance.participantManager.removeParticipantByUid(e.key);
@@ -290,15 +396,24 @@ class TgoRoomManager {
 
   // leave room
   Future<void> leaveRoom() async {
+    Logger.info(
+      '[Room] leaveRoom start room=${_currentRoomInfo?.roomName} '
+      'local=${room?.localParticipant?.identity} '
+      'remoteParticipants=${room?.remoteParticipants.length}',
+    );
     _stopTimeoutChecker();
     _unsubscribeFromVideoStats();
     try {
       await room?.disconnect().timeout(
             const Duration(seconds: 5),
-            onTimeout: () => null,
+            onTimeout: () {
+              Logger.error('[Room] disconnect timeout room=${_currentRoomInfo?.roomName}');
+              return null;
+            },
           );
+      Logger.info('[Room] disconnect finished room=${_currentRoomInfo?.roomName}');
     } catch (e) {
-      // ignore disconnect errors
+      Logger.error('[Room] disconnect failed room=${_currentRoomInfo?.roomName} error=$e');
     }
     room?.dispose();
     listener?.cancelAll();
@@ -307,5 +422,6 @@ class TgoRoomManager {
     room = null;
     _currentRoomInfo = null;
     TgoRTC.instance.participantManager.clear();
+    Logger.info('[Room] leaveRoom done');
   }
 }

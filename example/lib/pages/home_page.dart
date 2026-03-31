@@ -47,7 +47,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   // 默认服务器地址
-  static const String _defaultServerUrl = 'http://47.117.96.203:8080';
+  static const String _defaultServerUrl = 'http://212.64.113.55:8080';
 
   Future<void> _handleRoom({required bool isCreator}) async {
     if (_roomController.text.isEmpty) {
@@ -188,7 +188,7 @@ class _HomePageState extends State<HomePage> {
                 _buildInputField(
                   controller: _serverController,
                   label: 'TgoRTC 服务器地址',
-                  hint: '默认: http://47.117.96.203:8080',
+                  hint: '默认: http://212.64.113.55:8080',
                   icon: Icons.dns_rounded,
                 ),
                 const SizedBox(height: 20),

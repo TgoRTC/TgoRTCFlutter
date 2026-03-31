@@ -23,10 +23,16 @@ class TgoTrackRenderer {
   TgoParticipant? _participant;
   TrackSource source;
   RTCVideoViewObjectFit fit;
+  bool? mirror;
+  Widget? placeholder;
+  ValueChanged<bool>? onTrackChange;
 
   TgoTrackRenderer({
     this.source = TrackSource.camera,
     this.fit = RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+    this.mirror,
+    this.placeholder,
+    this.onTrackChange,
   });
 
   void setParticipant(TgoParticipant participant) {
@@ -43,6 +49,9 @@ class TgoTrackRenderer {
       participant: _participant,
       source: source,
       fit: fit,
+      mirror: mirror,
+      placeholder: placeholder,
+      onTrackChange: onTrackChange,
     );
   }
 }
@@ -51,11 +60,17 @@ class _TgoTrackRendererWidget extends StatefulWidget {
   final TgoParticipant? participant;
   final TrackSource source;
   final RTCVideoViewObjectFit fit;
+  final bool? mirror;
+  final Widget? placeholder;
+  final ValueChanged<bool>? onTrackChange;
 
   const _TgoTrackRendererWidget({
     this.participant,
     required this.source,
     required this.fit,
+    this.mirror,
+    this.placeholder,
+    this.onTrackChange,
   });
 
   @override
@@ -92,11 +107,13 @@ class _TgoTrackRendererWidgetState extends State<_TgoTrackRendererWidget> {
   void _addListeners() {
     widget.participant?.addCameraStatusListener(_onCameraChanged);
     widget.participant?.addJoinedListener(_onJoined);
+    widget.participant?.addTrackPublishedListener(_onTrackPublished);
   }
 
   void _removeListeners(TgoParticipant? participant) {
     participant?.removeCameraStatusListener(_onCameraChanged);
     participant?.removeJoinedListener(_onJoined);
+    participant?.removeTrackPublishedListener(_onTrackPublished);
   }
 
   void _onCameraChanged(bool enabled) {
@@ -107,21 +124,30 @@ class _TgoTrackRendererWidgetState extends State<_TgoTrackRendererWidget> {
     _updateTrack();
   }
 
+  void _onTrackPublished() {
+    _updateTrack();
+  }
+
   void _updateTrack() {
+    final nextTrack = widget.participant?.getVideoTrack(source: widget.source);
+    if (_videoTrack == nextTrack) {
+      return;
+    }
     setState(() {
-      _videoTrack = widget.participant?.getVideoTrack(source: widget.source);
+      _videoTrack = nextTrack;
     });
+    widget.onTrackChange?.call(_videoTrack != null);
   }
 
   @override
   Widget build(BuildContext context) {
     if (_videoTrack == null) {
-      return const SizedBox.shrink();
+      return widget.placeholder ?? const SizedBox.shrink();
     }
     return VideoTrackRenderer(
       _videoTrack!,
       fit: widget.fit,
-      mirrorMode: TgoRTC.instance.options.mirror
+      mirrorMode: (widget.mirror ?? TgoRTC.instance.options.mirror)
           ? VideoViewMirrorMode.mirror
           : VideoViewMirrorMode.off,
     );

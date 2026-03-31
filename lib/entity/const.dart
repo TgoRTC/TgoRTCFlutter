@@ -15,6 +15,12 @@ enum ConnectStatus {
   /// Successfully connected to the room.
   connected,
 
+  /// Attempting to reconnect to the room.
+  reconnecting,
+
+  /// Successfully reconnected to the room.
+  reconnected,
+
   /// Disconnected from the room.
   disconnected,
 }

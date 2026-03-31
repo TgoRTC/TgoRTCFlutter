@@ -1,13 +1,11 @@
 import 'package:livekit_client/livekit_client.dart';
 import 'package:tgortcflutter/tgortc.dart';
 
-import '../entity/const.dart';
-import '../entity/video_info.dart';
-import '../manager/tgo_audio_manager.dart';
 import '../utils/logger.dart';
 
 /// Callback type for video info changes.
 typedef VideoInfoListener = void Function(VideoInfo info);
+typedef SpeakingListener = void Function(bool isSpeaking);
 
 /// Represents a participant in a room (local or remote).
 ///
@@ -37,6 +35,7 @@ class TgoParticipant {
   RemoteParticipant? _remoteParticipant;
   EventsListener<ParticipantEvent>? _listener;
   final String uid;
+  final DateTime _createdAt = DateTime.now();
 
   // 视频信息相关
   final List<VideoInfoListener> _videoInfoListeners = [];
@@ -74,18 +73,32 @@ class TgoParticipant {
     _setupListener();
   }
 
+  DateTime get createdAt => _createdAt;
+
+  T? _firstPublicationBySource<T extends TrackPublication>(
+    Iterable<T> publications,
+    TrackSource source,
+  ) {
+    for (final publication in publications) {
+      if (publication.source == source) {
+        return publication;
+      }
+    }
+    return null;
+  }
+
   VideoTrack? getVideoTrack({TrackSource source = TrackSource.camera}) {
     if (_localParticipant != null) {
-      return _localParticipant!.videoTrackPublications
-          .where((pub) => pub.source == source)
-          .firstOrNull
-          ?.track as VideoTrack?;
+      return _firstPublicationBySource(
+        _localParticipant!.videoTrackPublications,
+        source,
+      )?.track;
     }
     if (_remoteParticipant != null) {
-      return _remoteParticipant!.videoTrackPublications
-          .where((pub) => pub.source == source)
-          .firstOrNull
-          ?.track as VideoTrack?;
+      return _firstPublicationBySource(
+        _remoteParticipant!.videoTrackPublications,
+        source,
+      )?.track;
     }
     return null;
   }
@@ -97,7 +110,7 @@ class TgoParticipant {
   final List<Function(bool enabled)> _cameraListeners = [];
   final List<Function(bool enabled)> _speakerListeners = [];
   final List<Function(bool enabled)> _screenShareListeners = [];
-  final List<Function(bool isSpeaking)> _speakingListeners = [];
+  final List<SpeakingListener> _speakingListeners = [];
   // local only
   final List<Function(TgoCameraPosition position)> _cameraPositionListeners =
       [];
@@ -156,11 +169,11 @@ class TgoParticipant {
     _screenShareListeners.remove(listener);
   }
 
-  addSpeakingListener(Function(bool isSpeaking) listener) {
+  addSpeakingListener(SpeakingListener listener) {
     _speakingListeners.add(listener);
   }
 
-  removeSpeakingListener(Function(bool isSpeaking) listener) {
+  removeSpeakingListener(SpeakingListener listener) {
     _speakingListeners.remove(listener);
   }
 
@@ -197,6 +210,8 @@ class TgoParticipant {
   }
 
   void _setupListener() {
+    _listener?.dispose();
+    _listener = null;
     if (_localParticipant != null) {
       _listener = _localParticipant?.createListener();
     }
@@ -327,13 +342,24 @@ class TgoParticipant {
         }
       })
       ..on<ParticipantConnectionQualityUpdatedEvent>((event) {
-        final quality = switch (event.connectionQuality) {
-          ConnectionQuality.excellent => TgoConnectionQuality.excellent,
-          ConnectionQuality.good => TgoConnectionQuality.good,
-          ConnectionQuality.poor => TgoConnectionQuality.poor,
-          ConnectionQuality.lost => TgoConnectionQuality.lost,
-          _ => TgoConnectionQuality.unknown,
-        };
+        TgoConnectionQuality quality;
+        switch (event.connectionQuality) {
+          case ConnectionQuality.excellent:
+            quality = TgoConnectionQuality.excellent;
+            break;
+          case ConnectionQuality.good:
+            quality = TgoConnectionQuality.good;
+            break;
+          case ConnectionQuality.poor:
+            quality = TgoConnectionQuality.poor;
+            break;
+          case ConnectionQuality.lost:
+            quality = TgoConnectionQuality.lost;
+            break;
+          default:
+            quality = TgoConnectionQuality.unknown;
+            break;
+        }
         for (var listener in _connectionQualityListeners) {
           listener(quality);
         }
@@ -397,14 +423,24 @@ class TgoParticipant {
     _currentVideoInfo = VideoInfo.empty;
   }
 
+  bool get hasJoined => isJoined;
   bool get isJoined => _localParticipant != null || _remoteParticipant != null;
+
+  double getAudioLevel() {
+    return _localParticipant?.audioLevel ?? _remoteParticipant?.audioLevel ?? 0;
+  }
+
+  bool getIsSpeaking() {
+    return _localParticipant?.isSpeaking ?? _remoteParticipant?.isSpeaking ?? false;
+  }
+
   // local only
   TgoCameraPosition? getCameraPosition() {
     if (_localParticipant == null) return null;
-    final videoTrack = _localParticipant!.videoTrackPublications
-        .where((pub) => pub.source == TrackSource.camera)
-        .firstOrNull
-        ?.track;
+    final videoTrack = _firstPublicationBySource(
+      _localParticipant!.videoTrackPublications,
+      TrackSource.camera,
+    )?.track;
     if (videoTrack != null) {
       final options = videoTrack.currentOptions;
       if (options is CameraCaptureOptions) {
@@ -421,10 +457,10 @@ class TgoParticipant {
   // local only
   switchCamera() {
     if (_localParticipant == null) return;
-    final videoTrack = _localParticipant!.videoTrackPublications
-        .where((pub) => pub.source == TrackSource.camera)
-        .firstOrNull
-        ?.track;
+    final videoTrack = _firstPublicationBySource(
+      _localParticipant!.videoTrackPublications,
+      TrackSource.camera,
+    )?.track;
     if (videoTrack != null) {
       final options = videoTrack.currentOptions;
       if (options is CameraCaptureOptions) {
@@ -555,7 +591,8 @@ class TgoParticipant {
   }
 
   notifyLeave() {
-    for (var element in _leaveListeners) {
+    final listeners = List<Function()>.from(_leaveListeners);
+    for (var element in listeners) {
       element();
     }
     dispose();
