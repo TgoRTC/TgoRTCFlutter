@@ -201,47 +201,63 @@ Enable automated publishing for `tgortcflutter` in pub.dev:
 - CI runs on every push to `main`
 - Publishing is only triggered by pushing a version tag
 - The tag must point to a commit already merged into `main`
+- pub.dev automated publishing must be enabled in the package admin page before the workflow can publish successfully
 
 ### Release Steps
 
-1. Ensure the release commit is already merged into `main`
-2. Run the release script
+1. Make sure your working tree is clean
+2. Run the release script from the repository root
 
 Example:
 
 ```bash
-./scripts/release.sh
+bash ./scripts/release.sh
 ```
 
 This script will:
 
+- verify the working tree is clean
 - auto-increment the patch version in `pubspec.yaml`
+- create a matching `CHANGELOG.md` entry if the target version is missing
 - switch to `main`
 - pull the latest changes
 - commit the version bump to `main`
 - push the commit to `main`
 - create a matching version tag such as `v1.0.2`
 - push the tag to GitHub
+- print the GitHub Actions and pub.dev links for the release
 
 If you want to release a specific version manually, you can still pass it:
 
 ```bash
-./scripts/release.sh 1.0.2
+bash ./scripts/release.sh 1.0.2
+```
+
+If you want shell-level trace logs while debugging the release flow:
+
+```bash
+RELEASE_DEBUG=1 bash ./scripts/release.sh
 ```
 
 After the tag is pushed, `.github/workflows/publish.yml` will publish the package automatically.
+
+### Notes
+
+- If a version tag such as `v1.0.4` already exists, the script will stop instead of reusing it.
+- If a release fails after the tag has already been pushed, the next normal run will publish the next patch version.
+- pub.dev validates `CHANGELOG.md`, so every published version must appear there.
 
 ### Workflows
 
 - `.github/workflows/ci.yml`
   - runs `flutter pub get`
-  - runs `flutter analyze`
+  - runs `flutter analyze --no-fatal-infos`
   - runs `dart pub publish --dry-run`
 
 - `.github/workflows/publish.yml`
   - runs on `v*` tags
-  - verifies tag version matches `pubspec.yaml`
-  - runs `dart pub publish --force`
+  - uses Dart's official GitHub Actions publishing workflow
+  - publishes to pub.dev using GitHub Actions OIDC credentials
 
 ## License
 

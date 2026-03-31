@@ -17,6 +17,16 @@ log() {
   echo "[release] $*"
 }
 
+get_repo_slug() {
+  local remote_url
+  remote_url="$(git remote get-url origin)"
+  remote_url="${remote_url%.git}"
+  remote_url="${remote_url#git@github.com:}"
+  remote_url="${remote_url#https://github.com/}"
+  remote_url="${remote_url#http://github.com/}"
+  echo "$remote_url"
+}
+
 run_step() {
   local description="$1"
   shift
@@ -91,6 +101,7 @@ else
 fi
 
 TAG="v$VERSION"
+REPO_SLUG="$(get_repo_slug)"
 log "target version: $VERSION"
 log "target tag: $TAG"
 
@@ -119,3 +130,7 @@ run_step "pushing tag $TAG" git push origin "$TAG"
 
 log "released $VERSION and pushed $TAG"
 log "GitHub Actions publish workflow should start now."
+log "GitHub Actions: https://github.com/$REPO_SLUG/actions"
+log "Release tag: https://github.com/$REPO_SLUG/releases/tag/$TAG"
+log "pub.dev package: https://pub.dev/packages/tgortcflutter"
+log "pub.dev versions: https://pub.dev/packages/tgortcflutter/versions"
