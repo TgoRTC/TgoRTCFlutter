@@ -183,6 +183,60 @@ await TgoRTC.instance.roomManager.leaveRoom();
 
 Check the [example](example/) directory for a complete working example.
 
+## Release
+
+This repository supports automated publishing to pub.dev with GitHub Actions.
+
+### One-time Setup
+
+Enable automated publishing for `tgortcflutter` in pub.dev:
+
+1. Open the package admin page: `https://pub.dev/packages/tgortcflutter/admin`
+2. Enable `GitHub Actions` automated publishing
+3. Set repository to `TgoRTC/TgoRTCFlutter`
+4. Set tag pattern to `v{{version}}`
+
+### Branch Policy
+
+- CI runs on every push to `main`
+- Publishing is only triggered by pushing a version tag
+- The tag must point to a commit already merged into `main`
+
+### Release Steps
+
+1. Update version in `pubspec.yaml`
+2. Update `CHANGELOG.md`
+3. Commit and merge the changes into `main`
+4. Create and push a version tag
+
+Example:
+
+```bash
+./scripts/release.sh 1.0.2
+```
+
+This script will:
+
+- verify `pubspec.yaml` version matches `1.0.2`
+- switch to `main`
+- pull the latest changes
+- create tag `v1.0.2`
+- push the tag to GitHub
+
+After the tag is pushed, `.github/workflows/publish.yml` will publish the package automatically.
+
+### Workflows
+
+- `.github/workflows/ci.yml`
+  - runs `flutter pub get`
+  - runs `flutter analyze`
+  - runs `dart pub publish --dry-run`
+
+- `.github/workflows/publish.yml`
+  - runs on `v*` tags
+  - verifies tag version matches `pubspec.yaml`
+  - runs `dart pub publish --force`
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
