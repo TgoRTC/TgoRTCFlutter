@@ -3,7 +3,7 @@ import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_oh
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall'
 import { BinaryMessenger } from '@ohos/flutter_ohos/src/main/ets/plugin/common/BinaryMessenger'
 import StandardMethodCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMethodCodec'
-import { RoomInfo, Participant, ConnectStatus, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams } from './Types'
+import { RoomInfo, Participant, ConnectStatus, ConnectStatusInfo, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams } from './Types'
 import hilog from '@ohos.hilog'
 
 // 日志 TAG 和 Domain
@@ -110,6 +110,16 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
    */
   static async isCalling(): Promise<boolean> {
     return TgoRTCFlutter.getInstance().isCalling()
+  }
+
+  /** 静态方法：获取当前连接状态。 */
+  static async getConnectStatus(): Promise<ConnectStatusInfo> {
+    return TgoRTCFlutter.getInstance().getConnectStatus()
+  }
+
+  /** 静态方法：获取当前房间信息。 */
+  static async getCurrentRoomInfo(): Promise<RoomInfo> {
+    return TgoRTCFlutter.getInstance().getCurrentRoomInfo()
   }
 
   /**
@@ -412,6 +422,33 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
     })
   }
 
+  /** 获取 Dart 房间管理器记录的真实连接状态。 */
+  async getConnectStatus(): Promise<ConnectStatusInfo> {
+    this.checkInitialized()
+    return new Promise<ConnectStatusInfo>((resolve, reject) => {
+      this.channel?.invokeMethod('getConnectStatus', null, {
+        success: (result: Object) => {
+          const value = result as ConnectStatusInfo
+          resolve(value)
+        },
+        error: (code: string, msg: string) => reject(new Error(`${code}: ${msg}`)),
+        notImplemented: () => reject(new Error('Method not implemented'))
+      })
+    })
+  }
+
+  /** 获取当前房间信息；离开房间后返回空对象。 */
+  async getCurrentRoomInfo(): Promise<RoomInfo> {
+    this.checkInitialized()
+    return new Promise<RoomInfo>((resolve, reject) => {
+      this.channel?.invokeMethod('getCurrentRoomInfo', null, {
+        success: (result: Object) => resolve(result as RoomInfo),
+        error: (code: string, msg: string) => reject(new Error(`${code}: ${msg}`)),
+        notImplemented: () => reject(new Error('Method not implemented'))
+      })
+    })
+  }
+
   /**
    * 当前是否存在通话房间。
    *
@@ -561,6 +598,30 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
           listener.onAudioOutputDeviceChanged(
             args.get('speakerphoneOn') as boolean,
             args.get('deviceName') as string
+          )
+        }
+        break
+
+      case 'onParticipantSpeaking':
+        if (listener.onParticipantSpeaking !== undefined) {
+          listener.onParticipantSpeaking(
+            args.get('roomName') as string,
+            args.get('uid') as string,
+            args.get('isLocal') as boolean,
+            args.get('isSpeaking') as boolean,
+            args.get('audioLevel') as number
+          )
+        }
+        break
+
+      case 'onVideoTrackChanged':
+        if (listener.onVideoTrackChanged !== undefined) {
+          listener.onVideoTrackChanged(
+            args.get('roomName') as string,
+            args.get('uid') as string,
+            args.get('isLocal') as boolean,
+            args.get('available') as boolean,
+            args.get('muted') as boolean
           )
         }
         break

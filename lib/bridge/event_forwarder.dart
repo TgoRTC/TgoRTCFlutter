@@ -10,6 +10,8 @@ class TgoEventForwarder {
   static bool _isInitialized = false;
   static TgoParticipant? _localParticipant;
   static final Set<TgoParticipant> _remoteLeaveListeners = {};
+  static final Set<TgoParticipant> _speakingListeners = {};
+  static final Set<TgoParticipant> _videoTrackListeners = {};
 
   /// Initializes the event forwarder.
   static void init(MethodChannel channel) {
@@ -43,6 +45,8 @@ class TgoEventForwarder {
         _localParticipant?.removeCameraStatusListener(_onLocalMediaChanged);
         _localParticipant = null;
         _remoteLeaveListeners.clear();
+        _speakingListeners.clear();
+        _videoTrackListeners.clear();
       }
     });
 
@@ -80,6 +84,8 @@ class TgoEventForwarder {
     _localParticipant = local;
     local.addMicrophoneStatusListener(_onLocalMediaChanged);
     local.addCameraStatusListener(_onLocalMediaChanged);
+    _listenToParticipantMediaEvents(local);
+    _notifyLocalMediaStatusChanged();
   }
 
   static void _onLocalMediaChanged(bool _) {
@@ -89,6 +95,7 @@ class TgoEventForwarder {
 
   static void _listenToJoinedRemoteParticipant(TgoParticipant participant) {
     if (participant.isLocal || !participant.isJoined) return;
+    _listenToParticipantMediaEvents(participant);
     if (!_remoteLeaveListeners.add(participant)) return;
 
     participant.addLeaveListener(() {
@@ -115,6 +122,9 @@ class TgoEventForwarder {
         : TgoRTC.instance.participantManager.getAllParticipants();
     for (final participant in participants) {
       _listenToJoinedRemoteParticipant(participant);
+      if (participant.isLocal) {
+        _listenToParticipantMediaEvents(participant);
+      }
     }
     _emit('onParticipantsChanged', {
       'count': participants.length,
@@ -128,6 +138,44 @@ class TgoEventForwarder {
     _emit('onLocalMediaStatusChanged', {
       'micEnabled': local.getMicrophoneEnabled(),
       'cameraEnabled': local.getCameraEnabled(),
+    });
+  }
+
+  static void _listenToParticipantMediaEvents(TgoParticipant participant) {
+    if (_speakingListeners.add(participant)) {
+      participant.addSpeakingListener((isSpeaking) {
+        _notifyParticipantSpeakingChanged(participant, isSpeaking);
+      });
+      _notifyParticipantSpeakingChanged(participant, participant.isSpeaking);
+    }
+    if (_videoTrackListeners.add(participant)) {
+      participant.addVideoTrackListener((available, muted) {
+        _notifyVideoTrackChanged(participant, available, muted);
+      });
+      _notifyVideoTrackChanged(participant, participant.getVideoTrack() != null,
+          !participant.getCameraEnabled());
+    }
+  }
+
+  static void _notifyParticipantSpeakingChanged(
+      TgoParticipant participant, bool isSpeaking) {
+    _emit('onParticipantSpeaking', {
+      'roomName': TgoRTC.instance.roomManager.currentRoomInfo?.roomName ?? '',
+      'uid': participant.uid,
+      'isLocal': participant.isLocal,
+      'isSpeaking': isSpeaking,
+      'audioLevel': participant.audioLevel,
+    });
+  }
+
+  static void _notifyVideoTrackChanged(
+      TgoParticipant participant, bool available, bool muted) {
+    _emit('onVideoTrackChanged', {
+      'roomName': TgoRTC.instance.roomManager.currentRoomInfo?.roomName ?? '',
+      'uid': participant.uid,
+      'isLocal': participant.isLocal,
+      'available': available,
+      'muted': muted,
     });
   }
 

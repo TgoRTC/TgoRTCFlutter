@@ -103,6 +103,7 @@ class TgoParticipant {
   final List<Function(bool enabled)> _speakerListeners = [];
   final List<Function(bool enabled)> _screenShareListeners = [];
   final List<Function(bool isSpeaking)> _speakingListeners = [];
+  final List<Function(bool available, bool muted)> _videoTrackListeners = [];
   // local only
   final List<Function(TgoCameraPosition position)> _cameraPositionListeners =
       [];
@@ -169,6 +170,21 @@ class TgoParticipant {
     _speakingListeners.remove(listener);
   }
 
+  /// Receives camera track availability and mute changes.
+  void addVideoTrackListener(Function(bool available, bool muted) listener) {
+    _videoTrackListeners.add(listener);
+  }
+
+  void removeVideoTrackListener(Function(bool available, bool muted) listener) {
+    _videoTrackListeners.remove(listener);
+  }
+
+  void _notifyVideoTrackChanged(bool available, bool muted) {
+    for (final listener in _videoTrackListeners.toList()) {
+      listener(available, muted);
+    }
+  }
+
   addCameraPositionListener(Function(TgoCameraPosition position) listener) {
     _cameraPositionListeners.add(listener);
   }
@@ -221,6 +237,7 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(false);
           }
+          _notifyVideoTrackChanged(true, true);
         }
       })
       ..on<TrackUnmutedEvent>((event) {
@@ -232,6 +249,7 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(true);
           }
+          _notifyVideoTrackChanged(true, false);
         }
       })
       ..on<SpeakingChangedEvent>((event) {
@@ -244,6 +262,7 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(true);
           }
+          _notifyVideoTrackChanged(true, false);
           // 订阅远程视频统计信息
           final track = event.track;
           if (track is RemoteVideoTrack) {
@@ -260,6 +279,7 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(true);
           }
+          _notifyVideoTrackChanged(true, false);
           // 订阅本地视频统计信息
           final track = event.publication.track;
           if (track is LocalVideoTrack) {
@@ -279,6 +299,7 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(false);
           }
+          _notifyVideoTrackChanged(false, false);
           // 取消订阅视频统计信息
           _unsubscribeFromVideoStats();
         } else if (event.publication.source == TrackSource.microphone) {
@@ -295,6 +316,7 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(true);
           }
+          _notifyVideoTrackChanged(true, false);
         } else if (event.publication.source == TrackSource.microphone) {
           for (var element in _microphoneListeners) {
             element(true);
@@ -309,6 +331,7 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(false);
           }
+          _notifyVideoTrackChanged(false, false);
         } else if (event.publication.source == TrackSource.microphone) {
           for (var element in _microphoneListeners) {
             element(false);
@@ -323,6 +346,7 @@ class TgoParticipant {
           for (var element in _cameraListeners) {
             element(false);
           }
+          _notifyVideoTrackChanged(false, false);
           // 取消订阅视频统计信息
           _unsubscribeFromVideoStats();
         } else if (event.publication.source == TrackSource.microphone) {
@@ -413,6 +437,12 @@ class TgoParticipant {
   }
 
   bool get isJoined => _localParticipant != null || _remoteParticipant != null;
+
+  bool get isSpeaking =>
+      _localParticipant?.isSpeaking ?? _remoteParticipant?.isSpeaking ?? false;
+
+  double get audioLevel =>
+      _localParticipant?.audioLevel ?? _remoteParticipant?.audioLevel ?? 0;
   // local only
   TgoCameraPosition? getCameraPosition() {
     if (_localParticipant == null) return null;
@@ -580,9 +610,7 @@ class TgoParticipant {
     }
 
     // 通知说话状态
-    final isSpeaking = _localParticipant?.isSpeaking ??
-        _remoteParticipant?.isSpeaking ??
-        false;
+    final isSpeaking = this.isSpeaking;
     for (var listener in _speakingListeners) {
       listener(isSpeaking);
     }
@@ -607,6 +635,7 @@ class TgoParticipant {
     _speakerListeners.clear();
     _screenShareListeners.clear();
     _speakingListeners.clear();
+    _videoTrackListeners.clear();
     _cameraPositionListeners.clear();
     _connectionQualityListeners.clear();
     _joinedListeners.clear();

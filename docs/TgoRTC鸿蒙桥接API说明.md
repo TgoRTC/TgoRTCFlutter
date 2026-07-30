@@ -68,6 +68,8 @@ Flutter 入口必须在加入房间前且仅一次调用 `TgoRTCOhosBridge.regis
   - `status` (number): 0: Connecting, 1: Connected, 2: Disconnected.
   - `reason` (string)
 
+返回值来自 Flutter 房间管理器的实际状态，不会把“正在连接”伪报为 `Connected`。断线后仍保留最近一次房间名和断开原因，直到下一次加入房间覆盖它。
+
 ### getCurrentRoomInfo
 获取当前房间详情。
 - **返回值**: `RoomInfo` 对象 Map (详见第 4 节)。
@@ -125,6 +127,26 @@ Flutter 入口必须在加入房间前且仅一次调用 `TgoRTCOhosBridge.regis
 - **Payload**:
   - `speakerphoneOn` (boolean)
   - `deviceName` (string): `Speakerphone` 或 `Earpiece`。
+
+### onParticipantSpeaking
+成员说话状态或音量变化。
+- **Payload**:
+  - `roomName` (string)
+  - `uid` (string)
+  - `isLocal` (boolean)
+  - `isSpeaking` (boolean)
+  - `audioLevel` (number): LiveKit 上报的 `0..1` 音量。
+
+### onVideoTrackChanged
+摄像头视频轨道的可用性或静音状态变化。
+- **Payload**:
+  - `roomName` (string)
+  - `uid` (string)
+  - `isLocal` (boolean)
+  - `available` (boolean): 是否存在可渲染的摄像头轨道。
+  - `muted` (boolean): 轨道是否被静音。
+
+重连完成会再次触发 `onConnectStatusChanged(Connected, "reconnected")`，并发送完整的 `onParticipantsChanged` 快照；`onRoomDisconnected.reason` 则透传 LiveKit 的断开原因（例如 `clientInitiated`、`participantRemoved`、`reconnectAttemptsExceeded`）。
 
 ---
 

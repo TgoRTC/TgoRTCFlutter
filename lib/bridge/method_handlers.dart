@@ -157,15 +157,11 @@ class TgoMethodHandlers {
   }
 
   static Map<String, dynamic> _getConnectStatus() {
-    final roomName =
-        TgoRTC.instance.roomManager.currentRoomInfo?.roomName ?? '';
-    // Since we don't have a direct "getStatus" field, we return placeholders or current known state
-    // For a real app, you might want to track this in the bridge or RoomManager
+    final roomManager = TgoRTC.instance.roomManager;
     return {
-      'roomName': roomName,
-      'status':
-          1, // Assume connected if requested this way, or need a way to get it from RoomManager
-      'reason': '',
+      'roomName': roomManager.connectStatusRoomName,
+      'status': TgoSerializers.connectStatusToInt(roomManager.connectStatus),
+      'reason': roomManager.connectStatusReason,
     };
   }
 

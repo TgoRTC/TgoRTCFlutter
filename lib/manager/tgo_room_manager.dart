@@ -37,6 +37,9 @@ class TgoRoomManager {
 
   final List<Function(String roomName, ConnectStatus status, String reason)>
       _connectListeners = [];
+  ConnectStatus _connectStatus = ConnectStatus.disconnected;
+  String _connectStatusReason = '';
+  String _lastRoomName = '';
   addConnectListener(
       Function(String roomName, ConnectStatus status, String reason) listener) {
     _connectListeners.add(listener);
@@ -47,7 +50,12 @@ class TgoRoomManager {
     _connectListeners.remove(listener);
   }
 
-  _setConnectStatus(String roomName, ConnectStatus status, String reason) {
+  void _setConnectStatus(String roomName, ConnectStatus status, String reason) {
+    _connectStatus = status;
+    _connectStatusReason = reason;
+    if (roomName.isNotEmpty) {
+      _lastRoomName = roomName;
+    }
     for (var element in _connectListeners) {
       element(roomName, status, reason);
     }
@@ -109,6 +117,9 @@ class TgoRoomManager {
   }
 
   RoomInfo? get currentRoomInfo => _currentRoomInfo;
+  ConnectStatus get connectStatus => _connectStatus;
+  String get connectStatusReason => _connectStatusReason;
+  String get connectStatusRoomName => _lastRoomName;
 
   /// Whether this SDK currently owns a LiveKit room instance.
   ///
@@ -138,7 +149,7 @@ class TgoRoomManager {
         // Dynacast: 动态暂停没有订阅者的视频层，节省带宽
         dynacast: true,
         // 视频捕获默认设置（发布端）- 4K 最高画质
-        defaultCameraCaptureOptions:  CameraCaptureOptions(
+        defaultCameraCaptureOptions: CameraCaptureOptions(
           maxFrameRate: 30,
           params: VideoParametersPresets.h2160_169, // 4K: 3840x2160
         ),
@@ -164,8 +175,8 @@ class TgoRoomManager {
     listener!
       ..on<RoomDisconnectedEvent>((event) {
         // disconnect
-        _setConnectStatus(
-            roomInfo.roomName, ConnectStatus.disconnected, "disconnected");
+        _setConnectStatus(roomInfo.roomName, ConnectStatus.disconnected,
+            _disconnectReason(event.reason));
         TgoRTC.instance.participantManager.getLocalParticipant().notifyLeave();
       })
       ..on<RoomAttemptReconnectEvent>((event) {
@@ -182,12 +193,14 @@ class TgoRoomManager {
             .setLocalParticipant(room!.localParticipant!);
         TgoRTC.instance.participantManager.getLocalParticipant().notifyJoined();
 
-        // ParticipantConnected can be emitted before this handler is
-        // registered. Reconcile LiveKit's current remote-participant map so a
-        // uidList placeholder still transitions to an actual joined member.
-        for (final participant in room!.remoteParticipants.values) {
-          TgoRTC.instance.participantManager.setParticipantJoin(participant);
-        }
+        _reconcileRemoteParticipants();
+      })
+      ..on<RoomReconnectedEvent>((event) {
+        // A reconnect can restore remote participants without emitting a
+        // second ParticipantConnectedEvent for each one.
+        _setConnectStatus(
+            roomInfo.roomName, ConnectStatus.connected, 'reconnected');
+        _reconcileRemoteParticipants();
       })
       ..on<RoomReconnectingEvent>((event) {
         // connecting
@@ -237,6 +250,18 @@ class TgoRoomManager {
     );
     // 开启定时器检查参与者超时
     _startTimeoutChecker(roomInfo.timeout);
+  }
+
+  void _reconcileRemoteParticipants() {
+    final currentRoom = room;
+    if (currentRoom == null) return;
+    for (final participant in currentRoom.remoteParticipants.values) {
+      TgoRTC.instance.participantManager.setParticipantJoin(participant);
+    }
+  }
+
+  String _disconnectReason(DisconnectReason? reason) {
+    return reason?.toString().split('.').last ?? 'disconnected';
   }
 
   /// 订阅视频统计信息事件
@@ -313,6 +338,10 @@ class TgoRoomManager {
           );
     } catch (e) {
       // ignore disconnect errors
+    }
+    if (_connectStatus != ConnectStatus.disconnected) {
+      _setConnectStatus(_currentRoomInfo?.roomName ?? _lastRoomName,
+          ConnectStatus.disconnected, 'clientInitiated');
     }
     room?.dispose();
     listener?.cancelAll();

@@ -41,6 +41,13 @@ export enum ConnectStatus {
   DISCONNECTED = 2
 }
 
+/** 当前连接状态查询结果。 */
+export interface ConnectStatusInfo {
+  roomName: string
+  status: ConnectStatus
+  reason: string
+}
+
 /**
  * 事件监听器接口
  */
@@ -68,6 +75,12 @@ export interface TgoRTCEventListener {
 
   /** 实际音频输出路由发生变化。 */
   onAudioOutputDeviceChanged?: (speakerphoneOn: boolean, deviceName: string) => void
+
+  /** 成员说话状态或音量变化。 */
+  onParticipantSpeaking?: (roomName: string, uid: string, isLocal: boolean, isSpeaking: boolean, audioLevel: number) => void
+
+  /** 摄像头轨道可用性或静音状态变化。 */
+  onVideoTrackChanged?: (roomName: string, uid: string, isLocal: boolean, available: boolean, muted: boolean) => void
 }
 
 /**
@@ -106,6 +119,24 @@ export interface RemoteParticipantLeftArgs {
 export interface AudioOutputDeviceChangedArgs {
   speakerphoneOn: boolean
   deviceName: string
+}
+
+/** 成员说话事件参数。 */
+export interface ParticipantSpeakingArgs {
+  roomName: string
+  uid: string
+  isLocal: boolean
+  isSpeaking: boolean
+  audioLevel: number
+}
+
+/** 视频轨道状态事件参数。 */
+export interface VideoTrackChangedArgs {
+  roomName: string
+  uid: string
+  isLocal: boolean
+  available: boolean
+  muted: boolean
 }
 
 /**
