@@ -26,6 +26,8 @@ export interface RoomInfo {
 export interface Participant {
   uid: string
   isLocal: boolean
+  /** True only after this uid has joined the LiveKit room. */
+  isJoined: boolean
   micEnabled: boolean
   cameraEnabled: boolean
 }
@@ -57,6 +59,15 @@ export interface TgoRTCEventListener {
    * 本地媒体状态变化
    */
   onLocalMediaStatusChanged?: (micEnabled: boolean, cameraEnabled: boolean) => void
+
+  /** 远端成员离开（P2P 页面可据此自动挂断）。 */
+  onRemoteParticipantLeft?: (roomName: string, uid: string, reason: string) => void
+
+  /** 房间最终断开。 */
+  onRoomDisconnected?: (roomName: string, reason: string) => void
+
+  /** 实际音频输出路由发生变化。 */
+  onAudioOutputDeviceChanged?: (speakerphoneOn: boolean, deviceName: string) => void
 }
 
 /**
@@ -82,6 +93,19 @@ export interface ParticipantsChangedArgs {
 export interface MediaStatusArgs {
   micEnabled: boolean
   cameraEnabled: boolean
+}
+
+/** 远端参与者离开事件参数。 */
+export interface RemoteParticipantLeftArgs {
+  roomName: string
+  uid: string
+  reason: string
+}
+
+/** 音频输出路由变化事件参数。 */
+export interface AudioOutputDeviceChangedArgs {
+  speakerphoneOn: boolean
+  deviceName: string
 }
 
 /**

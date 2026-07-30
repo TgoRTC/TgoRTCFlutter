@@ -138,6 +138,11 @@ struct CallPage {
       onParticipantsChanged: (count: number, participants) => {
         console.info(`[TgoRTC] Participants count: ${count}`)
         this.participants = count
+        // 仅真实入房的远端成员可以结束“等待对方加入”并开始计时。
+        const remote = participants.find((item) => !item.isLocal && item.isJoined)
+        if (remote !== undefined) {
+          // markRemoteJoined(remote.uid)
+        }
       },
       onLocalMediaStatusChanged: (micEnabled: boolean, cameraEnabled: boolean) => {
         this.isMicOn = micEnabled
@@ -321,6 +326,7 @@ struct CallPage {
 | `switchCamera()` | 切换前后摄像头 | - |
 | `invite(roomName, uids)` | 邀请参与者 | `string, string[]` |
 | `getAllParticipants()` | 获取所有参与者 | - |
+| `isCalling()` | 是否处于通话生命周期内 | - |
 | `isSpeakerOn()` | 获取扬声器状态 | - |
 
 ### RoomInfo 接口
@@ -354,6 +360,22 @@ interface TgoRTCEventListener {
   
   // 本地媒体状态变化
   onLocalMediaStatusChanged?: (micEnabled: boolean, cameraEnabled: boolean) => void
+
+  // 真实入房的远端成员离开；P2P 页面可调用 endByRemote()
+  onRemoteParticipantLeft?: (roomName: string, uid: string, reason: string) => void
+}
+```
+
+### Participant 接口
+
+```typescript
+interface Participant {
+  uid: string
+  isLocal: boolean
+  // false 表示 uidList 中的受邀/占位成员，尚未实际进入 LiveKit 房间。
+  isJoined: boolean
+  micEnabled: boolean
+  cameraEnabled: boolean
 }
 ```
 

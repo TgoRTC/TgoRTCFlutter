@@ -2,7 +2,8 @@ import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos'
 import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodChannel'
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall'
 import { BinaryMessenger } from '@ohos/flutter_ohos/src/main/ets/plugin/common/BinaryMessenger'
-import { RoomInfo, Participant, ConnectStatus, TgoRTCEventListener, ConnectStatusArgs, ParticipantsChangedArgs, MediaStatusArgs, JoinRoomParams, InitParams, InviteParams } from './Types'
+import StandardMethodCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMethodCodec'
+import { RoomInfo, Participant, ConnectStatus, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams } from './Types'
 import hilog from '@ohos.hilog'
 
 // 日志 TAG 和 Domain
@@ -105,6 +106,13 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
   }
 
   /**
+   * 静态方法：当前是否处于通话生命周期内（包含 connecting/reconnecting）。
+   */
+  static async isCalling(): Promise<boolean> {
+    return TgoRTCFlutter.getInstance().isCalling()
+  }
+
+  /**
    * FlutterPlugin 接口实现 - 返回唯一类名
    */
   getUniqueClassName(): string {
@@ -119,7 +127,9 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
     this.binaryMessenger = binding.getBinaryMessenger()
     hilog.debug(DOMAIN, TAG, `[TgoRTCFlutter] Got binaryMessenger: ${this.binaryMessenger !== null ? 'valid' : 'null'}`)
     
-    this.channel = new MethodChannel(this.binaryMessenger, 'com.tgortc/bridge')
+    // Match Dart's default MethodChannel codec explicitly. StandardMethodCodec
+    // decodes Dart Map values into ArkTS Map instances, not plain objects.
+    this.channel = new MethodChannel(this.binaryMessenger, 'com.tgortc/bridge', StandardMethodCodec.INSTANCE)
     hilog.debug(DOMAIN, TAG, '[TgoRTCFlutter] Created MethodChannel: com.tgortc/bridge')
     
     this.channel.setMethodCallHandler(this)
@@ -148,7 +158,7 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
    * MethodCallHandler 接口实现 - 处理来自 Flutter 的方法调用
    */
   onMethodCall(call: MethodCall, result: MethodResult): void {
-    hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] onMethodCall: method=${call.method}, args=${JSON.stringify(call.args)}`)
+    hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] onMethodCall: method=${call.method}`)
     this.handleFlutterEvent(call)
     result.success(null)
   }
@@ -403,6 +413,34 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
   }
 
   /**
+   * 当前是否存在通话房间。
+   *
+   * 返回 true 表示已开始加入且尚未 leaveRoom；它不表示房间一定已经连接成功。
+   * 需要连接成功状态时请监听 onConnectStatusChanged。
+   */
+  async isCalling(): Promise<boolean> {
+    hilog.info(DOMAIN, TAG, '[TgoRTCFlutter] isCalling START')
+    this.checkInitialized()
+    return new Promise<boolean>((resolve, reject) => {
+      this.channel?.invokeMethod('isCalling', null, {
+        success: (result: Object) => {
+          const isCalling = result as boolean
+          hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] isCalling SUCCESS: ${isCalling}`)
+          resolve(isCalling ?? false)
+        },
+        error: (code: string, msg: string) => {
+          hilog.error(DOMAIN, TAG, `[TgoRTCFlutter] isCalling ERROR: ${code} - ${msg}`)
+          reject(new Error(`${code}: ${msg}`))
+        },
+        notImplemented: () => {
+          hilog.warn(DOMAIN, TAG, '[TgoRTCFlutter] isCalling NOT_IMPLEMENTED')
+          reject(new Error('Method not implemented'))
+        }
+      })
+    })
+  }
+
+  /**
    * 获取扬声器状态
    */
   async isSpeakerOn(): Promise<boolean> {
@@ -452,38 +490,77 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
       return
     }
 
-    const args = call.args as Object
+    // The StandardMethodCodec represents a Dart Map as ArkTS Map. Casting it
+    // to an interface and reading `.roomName` produced undefined fields (and
+    // JSON.stringify(Map) misleadingly logs `{}`). Read all fields via get().
+    if (!(call.args instanceof Map)) {
+      hilog.warn(DOMAIN, TAG, `[TgoRTCFlutter] Event ${call.method} has non-Map arguments`)
+      return
+    }
+    const args = call.args as Map<string, Object>
     switch (call.method) {
       case 'onConnectStatusChanged':
-        if (args !== null && listener.onConnectStatusChanged !== undefined) {
-          const connectArgs = args as ConnectStatusArgs
-          hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] Event: onConnectStatusChanged - room=${connectArgs.roomName}, status=${connectArgs.status}, reason=${connectArgs.reason}`)
+        if (listener.onConnectStatusChanged !== undefined) {
+          const roomName = args.get('roomName') as string
+          const status = args.get('status') as number
+          const reason = args.get('reason') as string
+          hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] Event: onConnectStatusChanged - room=${roomName}, status=${status}, reason=${reason}`)
           listener.onConnectStatusChanged(
-            connectArgs.roomName,
-            connectArgs.status as ConnectStatus,
-            connectArgs.reason
+            roomName,
+            status as ConnectStatus,
+            reason
           )
         }
         break
 
       case 'onParticipantsChanged':
-        if (args !== null && listener.onParticipantsChanged !== undefined) {
-          const participantArgs = args as ParticipantsChangedArgs
-          hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] Event: onParticipantsChanged - count=${participantArgs.count}`)
+        if (listener.onParticipantsChanged !== undefined) {
+          const count = args.get('count') as number
+          const participants = args.get('participants') as Participant[]
+          hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] Event: onParticipantsChanged - count=${count}`)
           listener.onParticipantsChanged(
-            participantArgs.count,
-            participantArgs.participants
+            count,
+            participants
           )
         }
         break
 
       case 'onLocalMediaStatusChanged':
-        if (args !== null && listener.onLocalMediaStatusChanged !== undefined) {
-          const mediaArgs = args as MediaStatusArgs
-          hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] Event: onLocalMediaStatusChanged - mic=${mediaArgs.micEnabled}, camera=${mediaArgs.cameraEnabled}`)
+        if (listener.onLocalMediaStatusChanged !== undefined) {
+          const micEnabled = args.get('micEnabled') as boolean
+          const cameraEnabled = args.get('cameraEnabled') as boolean
+          hilog.info(DOMAIN, TAG, `[TgoRTCFlutter] Event: onLocalMediaStatusChanged - mic=${micEnabled}, camera=${cameraEnabled}`)
           listener.onLocalMediaStatusChanged(
-            mediaArgs.micEnabled,
-            mediaArgs.cameraEnabled
+            micEnabled,
+            cameraEnabled
+          )
+        }
+        break
+
+      case 'onRemoteParticipantLeft':
+        if (listener.onRemoteParticipantLeft !== undefined) {
+          listener.onRemoteParticipantLeft(
+            args.get('roomName') as string,
+            args.get('uid') as string,
+            args.get('reason') as string
+          )
+        }
+        break
+
+      case 'onRoomDisconnected':
+        if (listener.onRoomDisconnected !== undefined) {
+          listener.onRoomDisconnected(
+            args.get('roomName') as string,
+            args.get('reason') as string
+          )
+        }
+        break
+
+      case 'onAudioOutputDeviceChanged':
+        if (listener.onAudioOutputDeviceChanged !== undefined) {
+          listener.onAudioOutputDeviceChanged(
+            args.get('speakerphoneOn') as boolean,
+            args.get('deviceName') as string
           )
         }
         break

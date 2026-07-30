@@ -179,6 +179,12 @@ struct CallPage {
       },
       onParticipantsChanged: (count, participants) => {
         this.participantCount = count
+        // uidList 内的受邀成员可能尚未实际入房；只能对 isJoined 为 true
+        // 的远端成员开始通话计时或关闭“等待对方加入”。
+        const remote = participants.find((item) => !item.isLocal && item.isJoined)
+        if (remote !== undefined) {
+          // markRemoteJoined(remote.uid)
+        }
       }
     })
 
@@ -345,6 +351,9 @@ await TgoRTCFlutter.setSpeakerphoneOn(true)
 // 获取所有参与者
 const participants = await TgoRTCFlutter.getAllParticipants()
 
+// 是否已开始通话生命周期（包含 connecting/reconnecting，不等同于已连接）
+const calling = await TgoRTCFlutter.isCalling()
+
 // 获取扬声器状态
 const isSpeakerOn = await TgoRTCFlutter.isSpeakerOn()
 ```
@@ -357,7 +366,14 @@ TgoRTCFlutter.setEventListener({
     // status: 0=连接中, 1=已连接, 2=已断开
   },
   onParticipantsChanged: (count, participants) => {
-    // 参与者列表变化
+    // 只有 isJoined 为 true 才是已实际进入 LiveKit 房间的远端成员。
+    const remote = participants.find((item) => !item.isLocal && item.isJoined)
+    if (remote !== undefined) {
+      // markRemoteJoined(remote.uid)
+    }
+  },
+  onRemoteParticipantLeft: (roomName, uid, reason) => {
+    // P2P 页面可在此调用 endByRemote()
   },
   onLocalMediaStatusChanged: (micEnabled, cameraEnabled) => {
     // 本地音视频状态变化

@@ -2,6 +2,10 @@
 
 本文件详细说明了 `tgortcflutter` SDK 通过 `MethodChannel` (名称: `com.tgortc/bridge`) 暴露给鸿蒙原生的接口。
 
+Flutter 入口必须在加入房间前且仅一次调用 `TgoRTCOhosBridge.register()`。通道使用
+`StandardMethodCodec`：ArkTS 接收到的 payload 是 `Map`，应通过 `args.get('key')`
+读取字段，而不是通过 `args.key` 或 `JSON.stringify(args)` 读取。
+
 ---
 
 ## 1. 指令型 API (ArkTS -> Flutter)
@@ -72,6 +76,11 @@
 获取所有参与者列表。
 - **返回值**: `Participant[]` 数组 (详见第 4 节)。
 
+### isCalling
+当前是否处于通话生命周期内。
+- **返回值**: `boolean`。
+- **语义**: 从开始 `joinRoom` 到 `leaveRoom` 清理房间前均为 `true`，包括 Connecting 和 Reconnecting；它不等同于已连接。需要判断已连接状态时请使用 `onConnectStatusChanged`。
+
 ---
 
 ## 3. 事件通知 (Flutter -> ArkTS)
@@ -86,7 +95,8 @@
   - `reason` (string)
 
 ### onParticipantsChanged
-房间参与者列表发生变化（有人加入或离开）。
+房间参与者列表发生变化。以下场景均会推送完整列表：本地加入、远端加入、远端离开及本地媒体状态变化。
+`uidList` 中的受邀成员会先以占位成员出现，只有 `isJoined` 为 `true` 才表示该成员已实际进入 LiveKit 房间。
 - **Payload**:
   - `count` (number): 当前总人数。
   - `participants` (Participant[]): 完整的参与者列表。
@@ -97,6 +107,25 @@
   - `micEnabled` (boolean)
   - `cameraEnabled` (boolean)
 
+### onRemoteParticipantLeft
+远端成员离开。P2P 页面可据此自动挂断。
+- **Payload**:
+  - `roomName` (string)
+  - `uid` (string)
+  - `reason` (string)
+
+### onRoomDisconnected
+房间最终断开。
+- **Payload**:
+  - `roomName` (string)
+  - `reason` (string)
+
+### onAudioOutputDeviceChanged
+音频输出路由变化（包括调用 `setSpeakerphoneOn` 成功后）。
+- **Payload**:
+  - `speakerphoneOn` (boolean)
+  - `deviceName` (string): `Speakerphone` 或 `Earpiece`。
+
 ---
 
 ## 4. 数据结构定义
@@ -106,6 +135,7 @@
 {
   "uid": "string",
   "isLocal": "boolean",
+  "isJoined": "boolean",
   "micEnabled": "boolean",
   "cameraEnabled": "boolean"
 }
@@ -127,6 +157,17 @@
 }
 ```
 ---
+
+### 单聊状态判断
+
+单聊页面不得仅凭存在非本地 `uid` 就进入通话计时。应仅在成员满足
+`uid === remoteUid && !isLocal && isJoined` 时调用“对方已接通”逻辑；
+`isJoined: false` 表示邀请/预设占位成员，仍应展示等待对方加入。
+
+远端实际进入房间时会触发一次 `onParticipantsChanged`；之后该成员离开会同时触发
+`onRemoteParticipantLeft` 和更新后的 `onParticipantsChanged`。P2P 页面可在前者调用
+`endByRemote()`。
+
 ## 5. 错误代码说明
 
 当调用失败时，会通过 `PlatformException` 返回：

@@ -110,6 +110,14 @@ class TgoRoomManager {
 
   RoomInfo? get currentRoomInfo => _currentRoomInfo;
 
+  /// Whether this SDK currently owns a LiveKit room instance.
+  ///
+  /// This matches the Android SDK's `isCalling()` behavior: it is true from
+  /// the beginning of [joinRoom] until [leaveRoom] releases the room, including
+  /// connecting and reconnecting states. Use connect-status events when the
+  /// caller specifically needs to know whether the room is connected.
+  bool isCalling() => _room != null;
+
   // join room
   joinRoom(RoomInfo roomInfo,
       {micEnabled = false,
@@ -124,13 +132,13 @@ class TgoRoomManager {
         roomInfo.roomName, ConnectStatus.connecting, "connecting");
 
     room = Room(
-      roomOptions: RoomOptions(
+      roomOptions: const RoomOptions(
         // AdaptiveStream: 根据视频元素尺寸自动调整订阅质量
         adaptiveStream: true,
         // Dynacast: 动态暂停没有订阅者的视频层，节省带宽
         dynacast: true,
         // 视频捕获默认设置（发布端）- 4K 最高画质
-        defaultCameraCaptureOptions: const CameraCaptureOptions(
+        defaultCameraCaptureOptions:  CameraCaptureOptions(
           maxFrameRate: 30,
           params: VideoParametersPresets.h2160_169, // 4K: 3840x2160
         ),
@@ -173,6 +181,13 @@ class TgoRoomManager {
             .getLocalParticipant()
             .setLocalParticipant(room!.localParticipant!);
         TgoRTC.instance.participantManager.getLocalParticipant().notifyJoined();
+
+        // ParticipantConnected can be emitted before this handler is
+        // registered. Reconcile LiveKit's current remote-participant map so a
+        // uidList placeholder still transitions to an actual joined member.
+        for (final participant in room!.remoteParticipants.values) {
+          TgoRTC.instance.participantManager.setParticipantJoin(participant);
+        }
       })
       ..on<RoomReconnectingEvent>((event) {
         // connecting
@@ -197,8 +212,7 @@ class TgoRoomManager {
           if (track is LocalVideoTrack) {
             final options = track.currentOptions;
             final dimensions = options.params.dimensions;
-            Logger.info(
-                '[Video] Local track published: ${publication.sid}, '
+            Logger.info('[Video] Local track published: ${publication.sid}, '
                 'resolution: ${dimensions.width}x${dimensions.height}');
 
             // 订阅视频统计信息事件
@@ -272,8 +286,8 @@ class TgoRoomManager {
   /// 检查参与者超时：未加入且超时的直接删除并触发 leave 通知
   void _checkParticipantsTimeout(int timeoutSeconds) {
     final now = DateTime.now();
-    final pending = TgoRTC.instance.participantManager
-        .getPendingParticipantCreatedAt();
+    final pending =
+        TgoRTC.instance.participantManager.getPendingParticipantCreatedAt();
     for (var e in pending.entries) {
       if (now.difference(e.value).inSeconds >= timeoutSeconds) {
         TgoRTC.instance.participantManager.removeParticipantByUid(e.key);

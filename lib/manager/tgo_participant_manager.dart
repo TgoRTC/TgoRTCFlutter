@@ -27,6 +27,7 @@ class TgoParticipantManager {
       TgoParticipantManager._internal();
   static TgoParticipantManager get instance => _instance;
   final List<Function(TgoParticipant)> _newParticipantListeners = [];
+  final List<Function(TgoParticipant)> _participantJoinedListeners = [];
   TgoParticipant? _localParticipant;
   final Map<String, TgoParticipant> _remoteParticipants = {};
   final Map<String, DateTime> _participantCreatedAt = {};
@@ -97,7 +98,7 @@ class TgoParticipantManager {
         _remoteParticipants[uid] = tgoParticipant;
         _participantCreatedAt[uid] = DateTime.now();
       } else if (matchedParticipant != null) {
-        tgoParticipant.setRemoteParticipant(matchedParticipant);
+        _bindRemoteParticipant(tgoParticipant, matchedParticipant);
       }
       list.add(tgoParticipant);
       addedUids.add(uid);
@@ -112,7 +113,7 @@ class TgoParticipantManager {
           _remoteParticipants[p.identity] = tgoParticipant;
           _participantCreatedAt[p.identity] = DateTime.now();
         } else {
-          tgoParticipant.setRemoteParticipant(p);
+          _bindRemoteParticipant(tgoParticipant, p);
         }
         list.add(tgoParticipant);
       }
@@ -135,7 +136,7 @@ class TgoParticipantManager {
   /// 按 uid 直接删除参与者，会先通过 leave 事件通知 UI，再移除
   void removeParticipantByUid(String uid) {
     final tgoParticipant = _remoteParticipants[uid];
-    if(tgoParticipant == null || tgoParticipant.isJoined){
+    if (tgoParticipant == null || tgoParticipant.isJoined) {
       return;
     }
     tgoParticipant.notifyLeave();
@@ -145,7 +146,7 @@ class TgoParticipantManager {
   }
 
   // 超时未接听
-  missed(String roomName,List<String> uids){
+  missed(String roomName, List<String> uids) {
     var roomInfo = TgoRTC.instance.roomManager.currentRoomInfo;
     if (roomInfo == null || roomInfo.roomName != roomName) {
       return;
@@ -198,7 +199,7 @@ class TgoParticipantManager {
   setParticipantJoin(RemoteParticipant participant) {
     var tgoParticipant = _remoteParticipants[participant.identity];
     if (tgoParticipant != null) {
-      tgoParticipant.setRemoteParticipant(participant);
+      _bindRemoteParticipant(tgoParticipant, participant);
       return;
     }
 
@@ -210,6 +211,21 @@ class TgoParticipantManager {
     tgoParticipant = TgoParticipant(participant.identity, null, participant);
     _remoteParticipants[participant.identity] = tgoParticipant;
     _setNewParticipant(tgoParticipant);
+    _setParticipantJoined(tgoParticipant);
+  }
+
+  /// Binds a real LiveKit participant to an existing placeholder exactly once.
+  ///
+  /// A uid in [RoomInfo.uidList] may represent an invited participant that has
+  /// not joined the LiveKit room yet. The transition from placeholder to a
+  /// bound [RemoteParticipant] is the authoritative remote-joined event.
+  void _bindRemoteParticipant(
+      TgoParticipant tgoParticipant, RemoteParticipant participant) {
+    final wasJoined = tgoParticipant.isJoined;
+    tgoParticipant.setRemoteParticipant(participant);
+    if (!wasJoined && tgoParticipant.isJoined) {
+      _setParticipantJoined(tgoParticipant);
+    }
   }
 
   setParticipantLeave(RemoteParticipant participant) {
@@ -229,11 +245,28 @@ class TgoParticipantManager {
     }
   }
 
+  _setParticipantJoined(TgoParticipant participant) {
+    for (var element in _participantJoinedListeners.toList()) {
+      element(participant);
+    }
+  }
+
   addNewParticipantListener(Function(TgoParticipant) listener) {
     _newParticipantListeners.add(listener);
   }
 
   removeNewParticipantListener(Function(TgoParticipant) listener) {
     _newParticipantListeners.remove(listener);
+  }
+
+  /// Invoked when a remote participant has actually joined the LiveKit room.
+  /// This is intentionally separate from [addNewParticipantListener], which
+  /// also represents uidList-only placeholder participants.
+  addParticipantJoinedListener(Function(TgoParticipant) listener) {
+    _participantJoinedListeners.add(listener);
+  }
+
+  removeParticipantJoinedListener(Function(TgoParticipant) listener) {
+    _participantJoinedListeners.remove(listener);
   }
 }

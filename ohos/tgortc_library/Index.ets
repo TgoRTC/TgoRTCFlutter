@@ -14,4 +14,4 @@ export { TgoRTCFlutter, InitOptions } from './src/main/ets/TgoRTCFlutter'
 export { ConnectivityStubPlugin } from './src/main/ets/ConnectivityStubPlugin'
 
 // 类型定义
-export { RoomInfo, Participant, ConnectStatus, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams } from './src/main/ets/Types'
+export { RoomInfo, Participant, ConnectStatus, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams, RemoteParticipantLeftArgs, AudioOutputDeviceChangedArgs } from './src/main/ets/Types'

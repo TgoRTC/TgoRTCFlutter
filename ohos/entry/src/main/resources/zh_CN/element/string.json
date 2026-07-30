@@ -11,6 +11,14 @@
     {
       "name": "EntryAbility_label",
       "value": "tgortcflutter"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "用于语音和视频通话。"
+    },
+    {
+      "name": "camera_reason",
+      "value": "用于视频通话。"
     }
   ]
 }

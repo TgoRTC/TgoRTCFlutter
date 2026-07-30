@@ -2,19 +2,20 @@ import 'dart:developer' as developer;
 import 'package:flutter/services.dart';
 import 'package:tgortcflutter/tgortc.dart';
 import 'package:tgortcflutter/bridge/serializers.dart';
+import 'package:tgortcflutter/bridge/event_forwarder.dart';
 import 'package:tgortcflutter/utils/logger.dart';
 
 /// Handler for MethodChannel calls from HarmonyOS.
 class TgoMethodHandlers {
   static void _log(String msg) {
     developer.log('[TgoMethodHandlers] $msg', name: 'BRIDGE');
-    print('[TgoMethodHandlers] $msg');  // Also print for HarmonyOS hilog
+    print('[TgoMethodHandlers] $msg'); // Also print for HarmonyOS hilog
   }
 
   static Future<dynamic> handleMethodCall(MethodCall call) async {
     _log('handleMethodCall START: method=${call.method}');
     Logger.info('MethodChannel call: ${call.method}');
-    
+
     try {
       final result = await _dispatchMethodCall(call);
       _log('handleMethodCall SUCCESS: method=${call.method}');
@@ -55,6 +56,8 @@ class TgoMethodHandlers {
         return _getCurrentRoomInfo();
       case 'getAllParticipants':
         return _getAllParticipants();
+      case 'isCalling':
+        return _isCalling();
       case 'isSpeakerOn':
         return _isSpeakerOn();
       case 'getCameraPosition':
@@ -82,8 +85,9 @@ class TgoMethodHandlers {
     _log('_joinRoom START');
     try {
       final Map<dynamic, dynamic> map = args as Map<dynamic, dynamic>;
-      _log('_joinRoom parsed args: roomName=${map['roomName']}, url=${map['url']}');
-      
+      _log(
+          '_joinRoom parsed args: roomName=${map['roomName']}, url=${map['url']}');
+
       final roomInfo = RoomInfo(
         map['roomName'] ?? '',
         map['token'] ?? '',
@@ -96,15 +100,15 @@ class TgoMethodHandlers {
         ..isP2P = map['isP2P'] ?? false
         ..uidList = List<String>.from(map['uidList'] ?? [])
         ..timeout = map['timeout'] ?? 30;
-      
+
       _log('_joinRoom created RoomInfo, calling roomManager.joinRoom');
-      
+
       await TgoRTC.instance.roomManager.joinRoom(
         roomInfo,
         micEnabled: map['micEnabled'] ?? true,
         cameraEnabled: map['cameraEnabled'] ?? true,
       );
-      
+
       _log('_joinRoom roomManager.joinRoom completed');
     } catch (e, stackTrace) {
       _log('_joinRoom ERROR: $e');
@@ -118,15 +122,20 @@ class TgoMethodHandlers {
   }
 
   static Future<void> _setMicrophoneEnabled(bool enabled) async {
-    await TgoRTC.instance.participantManager.getLocalParticipant().setMicrophoneEnabled(enabled);
+    await TgoRTC.instance.participantManager
+        .getLocalParticipant()
+        .setMicrophoneEnabled(enabled);
   }
 
   static Future<void> _setCameraEnabled(bool enabled) async {
-    await TgoRTC.instance.participantManager.getLocalParticipant().setCameraEnabled(enabled);
+    await TgoRTC.instance.participantManager
+        .getLocalParticipant()
+        .setCameraEnabled(enabled);
   }
 
   static Future<void> _setSpeakerphoneOn(bool on) async {
     await TgoRTC.instance.audioManager.setSpeakerphoneOn(on);
+    TgoEventForwarder.notifyAudioOutputDeviceChanged();
   }
 
   static Future<void> _switchCamera() async {
@@ -148,23 +157,31 @@ class TgoMethodHandlers {
   }
 
   static Map<String, dynamic> _getConnectStatus() {
-    final roomName = TgoRTC.instance.roomManager.currentRoomInfo?.roomName ?? '';
+    final roomName =
+        TgoRTC.instance.roomManager.currentRoomInfo?.roomName ?? '';
     // Since we don't have a direct "getStatus" field, we return placeholders or current known state
     // For a real app, you might want to track this in the bridge or RoomManager
     return {
       'roomName': roomName,
-      'status': 1, // Assume connected if requested this way, or need a way to get it from RoomManager
+      'status':
+          1, // Assume connected if requested this way, or need a way to get it from RoomManager
       'reason': '',
     };
   }
 
   static Map<String, dynamic> _getCurrentRoomInfo() {
-    return TgoSerializers.roomInfoToMap(TgoRTC.instance.roomManager.currentRoomInfo);
+    return TgoSerializers.roomInfoToMap(
+        TgoRTC.instance.roomManager.currentRoomInfo);
   }
 
   static List<Map<String, dynamic>> _getAllParticipants() {
-    final participants = TgoRTC.instance.participantManager.getAllParticipants();
+    final participants =
+        TgoRTC.instance.participantManager.getAllParticipants();
     return TgoSerializers.participantListToMap(participants);
+  }
+
+  static bool _isCalling() {
+    return TgoRTC.instance.roomManager.isCalling();
   }
 
   static bool _isSpeakerOn() {
@@ -172,7 +189,9 @@ class TgoMethodHandlers {
   }
 
   static String _getCameraPosition() {
-    final pos = TgoRTC.instance.participantManager.getLocalParticipant().getCameraPosition();
+    final pos = TgoRTC.instance.participantManager
+        .getLocalParticipant()
+        .getCameraPosition();
     return pos == TgoCameraPosition.front ? 'front' : 'back';
   }
 }

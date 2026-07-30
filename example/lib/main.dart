@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:tgortcflutter/tgortc.dart';
 import 'package:tgortcflutter/entity/options.dart';
+import 'package:tgortcflutter/bridge/tgortc_ohos_bridge.dart';
 
 import 'pages/home_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  TgoRTCOhosBridge.register();
 
   // 初始化 TgoRTC SDK
   TgoRTC.instance.init(Options()

@@ -12,7 +12,7 @@ class TgoSerializers {
       'loginUID': info.loginUID,
       'creatorUID': info.creatorUID,
       'maxParticipants': info.maxParticipants,
-      'rtcType': info.rtcType,
+      'rtcType': info.rtcType == RTCType.video ? 1 : 0,
       'isP2P': info.isP2P,
       'uidList': info.uidList,
       'timeout': info.timeout,
@@ -24,14 +24,15 @@ class TgoSerializers {
     return {
       'uid': participant.uid,
       'isLocal': participant.isLocal,
+      'isJoined': participant.isJoined,
       'micEnabled': participant.getMicrophoneEnabled(),
       'cameraEnabled': participant.getCameraEnabled(),
-      'isSpeaking': participant.isJoined, // isJoined might be slightly different but used as placeholder
     };
   }
 
   /// Serializes a list of [TgoParticipant] to a List of Maps.
-  static List<Map<String, dynamic>> participantListToMap(List<TgoParticipant> participants) {
+  static List<Map<String, dynamic>> participantListToMap(
+      List<TgoParticipant> participants) {
     return participants.map((p) => participantToMap(p)).toList();
   }
 

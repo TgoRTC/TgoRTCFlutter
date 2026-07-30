@@ -524,17 +524,42 @@ class TgoParticipant {
     return TgoAudioManager.instance.isSpeakerOn;
   }
 
-  setLocalParticipant(LocalParticipant participant) {
+  /// Binds the LiveKit local participant exactly once per instance.
+  ///
+  /// [TgoParticipantManager.getLocalParticipant] is also used while building
+  /// participant snapshots. Rebinding the same instance from that hot path
+  /// would synchronously emit the initial media state again, which can cause
+  /// event listeners to re-enter participant snapshot generation.
+  void setLocalParticipant(LocalParticipant participant) {
+    if (identical(_localParticipant, participant)) {
+      return;
+    }
+
+    _disposeParticipantListener();
+    _unsubscribeFromVideoStats();
     _localParticipant = participant;
     _setupListener();
     _notifyInitialState();
   }
 
-  setRemoteParticipant(RemoteParticipant participant) {
+  /// Replaces the remote participant listener only when LiveKit supplies a
+  /// different participant instance.
+  void setRemoteParticipant(RemoteParticipant participant) {
+    if (identical(_remoteParticipant, participant)) {
+      return;
+    }
+
+    _disposeParticipantListener();
+    _unsubscribeFromVideoStats();
     _remoteParticipant = participant;
     _setupListener();
     _notifyInitialState();
     notifyJoined();
+  }
+
+  void _disposeParticipantListener() {
+    _listener?.dispose();
+    _listener = null;
   }
 
   void _notifyInitialState() {
@@ -590,7 +615,6 @@ class TgoParticipant {
     _trackUnpublishedListeners.clear();
     _videoInfoListeners.clear();
     _unsubscribeFromVideoStats();
-    _listener?.dispose();
-    _listener = null;
+    _disposeParticipantListener();
   }
 }

@@ -11,6 +11,14 @@
     {
       "name": "EntryAbility_label",
       "value": "tgortcflutter"
+    },
+    {
+      "name": "microphone_reason",
+      "value": "Used for voice and video calls."
+    },
+    {
+      "name": "camera_reason",
+      "value": "Used for video calls."
     }
   ]
 }
