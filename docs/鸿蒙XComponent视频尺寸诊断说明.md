@@ -109,6 +109,67 @@ yHash=<n> yMean=<n> yHorizontalMirrorMad=<n> uHash=<n> ... vHash=<n> ...
 该日志只对 Y/U/V 平面固定网格取样并计算指纹，不输出或落盘任何视频像素；首 3 帧及每 30 帧记录一次。
 它是判定重影是否已经进入 RTP 编码帧的唯一边界证据，需与同一时段 Android/iOS 接收截图一并提供。
 
+### 上下黑边：无真机时的定量定位
+
+当 Android/iOS 接收端也显示鸿蒙发布流的上下黑边时，黑边已不属于 ArkTS/XComponent UI。SDK 在首 3 帧及每第
+30 帧输出下列仅含统计数据的 HiLog，不记录或落盘相机画面：
+
+```text
+[OhosCapture][OesFingerprint] ... bands(top/middle/bottom)=<Y>/<Y>/<Y> \
+nearBlackPermille(top/middle/bottom)=<0..1000>/<0..1000>/<0..1000>
+[OhosCapture][I420Fingerprint] ... bands(top/middle/bottom)=<Y>/<Y>/<Y> \
+nearBlackPermille(top/middle/bottom)=<0..1000>/<0..1000>/<0..1000>
+[OhosCapture][SourceAdapt] input=<w>x<h> rotation=<degrees> logical=<w>x<h> \
+crop=<x>,<y>+<w>x<h> output=<w>x<h> bufferType=<n> drop=<bool>
+```
+
+`nearBlackPermille` 是每个垂直三分区中亮度不高于 20 的采样点占比。测试时请对准明亮场景，避免把真实暗场误判为
+黑边。
+
+| 日志结果 | 可确认的根因边界 |
+| --- | --- |
+| OES 顶/底近黑比都接近 `1000`，中段明显较低 | 黑边来自 `NativeImage/OES` 输入；当前无真机时，最可能是模拟器虚拟相机或模拟器 Camera producer。 |
+| OES 三段正常，I420 顶/底近黑比接近 `1000` | `TextureBuffer -> YuvConverter -> I420` 打包/采样矩阵制造黑边。 |
+| OES、I420 三段均正常，而远端仍有黑边 | 检查 `SourceAdapt` 的 rotation、crop、output；若仍无异常，再检查编码器或接收方。 |
+
+仅完成日志定位时，需要替换的交付物仍只有包含新 `libohos_webrtc.so` 的 `flutter_webrtc.har`。
+
+若黑区只在鸿蒙本机预览可见，同时 OES/I420 统计均正常，则再收集：
+
+```text
+[XComponentVideo][OutputSample] surfaceId=<id> count=<n> surface=<w>x<h> \
+luma(low/middle/high)=<Y>/<Y>/<Y> nearBlackPermille(low/middle/high)=<0..1000>/<0..1000>/<0..1000>
+```
+
+此日志在 `eglSwapBuffers()` 前对 native renderer 已完成绘制的 XComponent framebuffer 采样。它也没有边缘近黑像素时，
+native renderer 已正确输出整帧；截图中的黑区只能来自后续 ArkUI Surface 合成，或页面中位于视频 Surface 下方的黑色
+背景层。它同样不输出、保存或传输视频像素。
+
+### 本地“原图 + 镜像副本”重影：VideoOutput 采集路线
+
+在 `444.txt` 的实际链路中，本地 track 仅有一次 `videoRendererSetSrcObject` / `SinkAttach`，而
+`OesFingerprint` 与编码前的 `I420Fingerprint` 都已表现出强左右对称。采集矩阵仅为旋转/翻转的可逆仿射矩阵，
+不能复制画面。因此故障边界是相机 `PreviewOutput -> NativeImage OES`，而不是 XComponent、`mirror` 参数、编码器或
+RTP。
+
+从本版本起，`CameraCapturer` 会优先从设备的 `Camera_VideoProfile` 创建 `VideoOutput`，再将同一 NativeImage
+surface 交给 WebRTC 编码；`PreviewOutput` 只在设备没有匹配 VideoProfile 时作为兼容回退。它会输出以下低频 HiLog：
+
+```text
+[OhosCapture][OutputRoute] video candidate index=<n> ... size=<w>x<h> fps=<min>-<max>
+[OhosCapture][OutputRoute] attempt=video surfaceId=<id> size=<w>x<h> ...
+[OhosCapture][OutputRoute] active=video surfaceId=<id>
+```
+
+只有 `active=video` 才表示 VideoOutput 会话已真正启动。若日志出现 `setup failed output=video`，SDK 会释放
+失败会话，关闭并重建 `CameraInput`，再自动尝试 `attempt=preview-fallback`。这一步会输出
+`resetting CameraInput before PreviewOutput fallback` 和 `CameraInput reset complete`；缺少后者时不应继续判断
+PreviewOutput 本身。看到 `active=preview-fallback` 表示本地视频已回到原先可用的 PreviewOutput 路线，但不能据此
+宣称重影已修复。应同时提供候选 profile 日志和 `OesFingerprint` / `I420Fingerprint`。
+
+这个改动只在 `libohos_webrtc.so` 内，交付时仅替换同次打包的 `flutter_webrtc.har` 即可；不需要因它替换
+`flutter.har`、`flutter_assets` 或 `tgortc-*.har`。
+
 ## 首帧后静止与本地重影诊断
 
 一个远端画面能显示首帧、随后静止，不能仅凭 XComponent 的首帧尺寸日志判断为渲染问题。native

@@ -393,6 +393,16 @@ https://gitcode.com/openharmony-sig/ohos_webrtc.git
 - 仅修改上述 native 采集代码时，交付内容是重新打包的 `flutter_webrtc.har`（其中含新
   `libohos_webrtc.so`）。没有 Dart、Flutter Engine 或 `tgortc` 改动时，**不需要**更新 `flutter.har`、
   `flutter_assets` 或 `tgortc-*.har`。
+- 对“原图与镜像副本叠加”的采集重影，不能通过 `mirror` 或 XComponent 处理。`444.txt` 已证实单一 local
+  renderer、OES 与编码前 I420 均已有该特征，而采集矩阵只有旋转/翻转，不能产生第二张图。`CameraCapturer` 必须
+  优先枚举 `Camera_VideoProfile` 并使用 `CreateVideoOutput` / `AddVideoOutput` 将 NativeImage surface 作为视频
+  采集输出；仅在设备没有匹配 VideoProfile 时回退 `CreatePreviewOutput` / `AddPreviewOutput`。
+- 此路线必须记录 `[OhosCapture][OutputRoute]`：视频 profile 候选、`attempt=video` 以及会话真正启动后的
+  `active=video`。`VideoOutput` 在某些设备/SDK 组合会于 `CommitConfig` 失败；实现必须释放失败的 output/session，
+  关闭并重建 `CameraInput` 后自动尝试 `PreviewOutput`，并记录 `setup failed output=video stage=<...>`、
+  `resetting CameraInput before PreviewOutput fallback`、`CameraInput reset complete`、`attempt=preview-fallback` 和
+  `active=preview-fallback`。验收重影修复必须确认 `active=video`；回退日志只证明本地视频恢复，仍是旧采集路径。
+  该 native 改动只需重打包和替换 `flutter_webrtc.har`。
 
 ### XComponent 首帧静止与镜像重影的定位规则
 
@@ -402,6 +412,10 @@ https://gitcode.com/openharmony-sig/ohos_webrtc.git
 - 远端只显示首帧时，先核对同一 SSRC 的 `VideoReceiveStreamInterface stats`。如果 `total_bps=0`、
   `network_fps=0`、`decode_fps=0`、`render_fps=0`，并且 `[Input]` 计数停止增长，说明接收端已没有新的 RTP
   视频帧；排查对端发布、LiveKit 订阅/转发或网络，不能靠重建 XComponent 修复。
+- 若本机截图仍显示黑区，但 OES 与 I420 的 `nearBlackPermille` 都为零，必须收集
+  `[XComponentVideo][OutputSample]`。它在 `eglSwapBuffers()` 前对 XComponent 已绘制 framebuffer 的低/中/高
+  三段做 RGBA 亮度采样；它也为零则 native renderer 已输出完整画面，黑区只能由 ArkUI Surface 合成或页面背景层
+  在其后产生。该日志同样只输出统计值，首 3 帧及每 30 帧记录一次。
 - 本地重影不能仅根据 `mirror=true` 处理。先确认 `videoRendererSetSrcObject`、`setVideoTrack` 和
   `surfaceId` 是否存在重复绑定。`mirrorRequested` 是 ArkTS 请求，`rendererMirrorApplied` 仅表示 native
   renderer 是否额外施加镜像；native `TextureBuffer` 的方向由采集矩阵处理，强制再翻转不能消除重影且可能造成
@@ -410,6 +424,13 @@ https://gitcode.com/openharmony-sig/ohos_webrtc.git
   上行边界，不能修改 XComponent。必须采集 `[OhosCapture][I420Fingerprint]`：它在 `glReadPixels()` 后针对实际
   编码 I420 的 Y/U/V 平面输出固定网格指纹、均值和 `yHorizontalMirrorMad`，只记录首 3 帧与每 30 帧，不得输出
   原始摄像头像素或将其写入磁盘。
+- 若 Android/iOS 接收端也出现鸿蒙发布流的上下黑边，使用同一帧的
+  `[OhosCapture][OesFingerprint]`、`[OhosCapture][I420Fingerprint]` 与
+  `[OhosCapture][SourceAdapt]`。前两者的 `bands(top/middle/bottom)` 和
+  `nearBlackPermille(top/middle/bottom)` 只统计三段亮度与近黑像素比例：顶/底接近 `1000` 而中段明显较低，表示
+  黑边已在该边界出现。OES 已出现则归因于模拟器/相机 producer；只有 I420 出现则归因于纹理转 I420；两处都没有
+  而远端仍有黑边，才继续排查 SourceAdapter、编码器或接收方。`SourceAdapt` 会输出原始尺寸、rotation、逻辑尺寸、
+  crop 与 output，以确认旋转元数据是否导致错误的裁切/缩放。
 - 当 Android/iOS 发布到鸿蒙均首帧后静止，应同时检索 `[OhosRtpIngress]`。它在 RTP transport 收包、SRTP/media
   demux 前按 SSRC 记录首 3 包与每 120 包：SSRC 计数停止说明没有后续视频包进入鸿蒙 WebRTC；SSRC 继续增长而
   `[XComponentVideo][Input]` 停止，才排查鸿蒙的 SRTP、demux 或解码层。
