@@ -6,6 +6,11 @@ Flutter 入口必须在加入房间前且仅一次调用 `TgoRTCOhosBridge.regis
 `StandardMethodCodec`：ArkTS 接收到的 payload 是 `Map`，应通过 `args.get('key')`
 读取字段，而不是通过 `args.key` 或 `JSON.stringify(args)` 读取。
 
+使用本页的 XComponent Surface API 时，集成方必须整体更新
+`tgortc-<version>.har`、`flutter_webrtc.har`、`flutter.har` 与完整
+`flutter_assets/`。其中 `flutter_webrtc.har` 提供将 WebRTC VideoSink 直接绑定到
+ArkTS Surface 的能力；只替换 `tgortc` HAR 不会获得多路原生渲染。
+
 ---
 
 ## 1. 指令型 API (ArkTS -> Flutter)
@@ -54,6 +59,46 @@ Flutter 入口必须在加入房间前且仅一次调用 `TgoRTCOhosBridge.regis
 - **参数**:
   - `roomName` (string): 房间名。
   - `uids` (string[]): 邀请的 UID 列表。
+
+### attachVideoSurface
+将指定成员的摄像头轨道绑定到 **已加载** 的 ArkTS `XComponent` Surface。
+
+```ts
+await TgoRTCFlutter.attachVideoSurface({
+  uid: 'remote-user-id',
+  surfaceId: xComponentController.getXComponentSurfaceId(),
+  isLocal: false,
+  mirror: false,
+  fit: 'cover', // 'cover' | 'contain'
+})
+```
+
+- `surfaceId` 必须来自 `XComponent.onLoad` 后的
+  `XComponentController.getXComponentSurfaceId()`；不可预先伪造或跨页面复用。
+- 轨道尚未订阅时调用会成功登记并进入 `waiting_track`；轨道可用、重连或替换后会自动绑定。
+- 同一成员最多可同时绑定一个主画面和一个小窗；超出限制返回 `renderer_bind_failed`。
+- SDK 仅绑定视频输出，不创建 FlutterPage、ArkTS 网格或其他 UI。
+
+### detachVideoSurface
+幂等地释放一个视频格子的 renderer/sink。
+
+```ts
+await TgoRTCFlutter.detachVideoSurface({ surfaceId })
+```
+
+在成员离开、页面重排、`XComponent.onDestroy`、最小化、挂断前调用。它只移除当前
+renderer 的 VideoSink，**不会**停止该成员共享的摄像头或远端视频轨道。
+
+### updateVideoSurface
+原子更新已绑定 Surface 的镜像和填充方式，不重建轨道。
+
+```ts
+await TgoRTCFlutter.updateVideoSurface({
+  surfaceId,
+  mirror: true,
+  fit: 'contain',
+})
+```
 
 ---
 
@@ -146,6 +191,18 @@ Flutter 入口必须在加入房间前且仅一次调用 `TgoRTCOhosBridge.regis
   - `available` (boolean): 是否存在可渲染的摄像头轨道。
   - `muted` (boolean): 轨道是否被静音。
 
+### onVideoSurfaceStateChanged
+ArkTS Surface 与真实 WebRTC VideoSink 的状态变化。
+- **Payload**:
+  - `roomName` (string)
+  - `surfaceId` (string)
+  - `uid` (string)
+  - `state` (`rendering` | `waiting_track` | `detached` | `error`)
+  - `reason` (string，可选)
+
+`rendering` 在 native renderer 收到首帧后触发。`waiting_track` 表示成员或摄像头轨道
+尚未可用，ArkTS 应保留头像占位而不是重试进房；`detached` 表示可安全销毁对应格子。
+
 重连完成会再次触发 `onConnectStatusChanged(Connected, "reconnected")`，并发送完整的 `onParticipantsChanged` 快照；`onRoomDisconnected.reason` 则透传 LiveKit 的断开原因（例如 `clientInitiated`、`participantRemoved`、`reconnectAttemptsExceeded`）。
 
 ---
@@ -190,8 +247,27 @@ Flutter 入口必须在加入房间前且仅一次调用 `TgoRTCOhosBridge.regis
 `onRemoteParticipantLeft` 和更新后的 `onParticipantsChanged`。P2P 页面可在前者调用
 `endByRemote()`。
 
-## 5. 错误代码说明
+## 6. Flutter Texture 视频层（可选）
+
+当 ArkTS XComponent 外部 Surface 无法满足 `cover/contain` 的原生裁切效果时，可改用
+单个 FlutterPage 承载 `TgoFlutterVideoTextureLayer`。ArkTS 通过
+`setFlutterVideoLayout({ tiles, animationDurationMs?, animationCurve? })` 下发完整的归一化
+视频格子布局，并通过 `clearFlutterVideoLayout()` 清理。旧 XComponent API 保持可用。
+
+该方案依赖 `flutter_webrtc` 内包含 `NativeVideoRenderer.initFlutterTexture` 的 native 修复版；
+它把 Flutter `TextureRegistry` Surface 切换到 CPU/RGBA 输出，避免旧 EGL 路径的
+`eglMakeCurrent in update failed` 黑屏。仅更新 `tgortc` HAR 或 Dart `flutter_assets` 不会修复
+该 native 问题。
+
+完整架构、Flutter 入口、悬浮小窗及动画同步示例见
+[`鸿蒙FlutterTexture视频层集成说明.md`](鸿蒙FlutterTexture视频层集成说明.md)。
+
+## 7. 错误代码说明
 
 当调用失败时，会通过 `PlatformException` 返回：
 - `unsupported_method`: 调用了不存在的方法。
 - `StateError`: SDK 状态异常（如未初始化就调用加入房间）。
+- `surface_not_found`: `surfaceId` 为空、未登记或已销毁。
+- `participant_not_found`: UID 不在当前房间。
+- `renderer_bind_failed`: renderer 创建、轨道绑定、参数校验或配额检查失败。
+- `invalid_flutter_video_layout`: Flutter Texture 布局参数非法、tileId 重复或归一化矩形越界。

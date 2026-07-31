@@ -40,11 +40,16 @@ dev_dependencies:
 
 dependency_overrides:
   flutter_webrtc:
-    git:
-      url: "https://gitcode.com/openharmony-sig/fluttertpc_flutter_webrtc.git"
+    path: ../fluttertpc_flutter_webrtc
   livekit_client:
     git:
       url: "https://gitcode.com/openharmony-sig/fluttertpc_livekit_client.git"
   meta: 1.8.0
   # 解决 flutter_webrtc 与 flutter_test 的 collection 版本冲突
   collection: 1.17.1
+
+# HarmonyOS Flutter Engine 在创建 Skia context 时会直接读取此 raw asset。
+# 即使未预热 SkSL，也必须提供空 data 对象；否则某些设备会失败并黑屏。
+flutter:
+  assets:
+    - io.flutter.shaders.json

@@ -3,7 +3,7 @@ import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_oh
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall'
 import { BinaryMessenger } from '@ohos/flutter_ohos/src/main/ets/plugin/common/BinaryMessenger'
 import StandardMethodCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/StandardMethodCodec'
-import { RoomInfo, Participant, ConnectStatus, ConnectStatusInfo, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams } from './Types'
+import { RoomInfo, Participant, ConnectStatus, ConnectStatusInfo, AttachVideoSurfaceParams, DetachVideoSurfaceParams, UpdateVideoSurfaceParams, SetFlutterVideoLayoutParams, VideoSurfaceState, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams } from './Types'
 import hilog from '@ohos.hilog'
 
 // 日志 TAG 和 Domain
@@ -120,6 +120,31 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
   /** 静态方法：获取当前房间信息。 */
   static async getCurrentRoomInfo(): Promise<RoomInfo> {
     return TgoRTCFlutter.getInstance().getCurrentRoomInfo()
+  }
+
+  /** Bind one member's camera track to an ArkTS XComponent Surface. */
+  static async attachVideoSurface(params: AttachVideoSurfaceParams): Promise<void> {
+    return TgoRTCFlutter.getInstance().attachVideoSurface(params)
+  }
+
+  /** Idempotently release the renderer associated with an ArkTS Surface. */
+  static async detachVideoSurface(params: DetachVideoSurfaceParams): Promise<void> {
+    return TgoRTCFlutter.getInstance().detachVideoSurface(params)
+  }
+
+  /** Update mirror/fit without recreating the member video track. */
+  static async updateVideoSurface(params: UpdateVideoSurfaceParams): Promise<void> {
+    return TgoRTCFlutter.getInstance().updateVideoSurface(params)
+  }
+
+  /** Updates the Flutter Texture grid hosted by a single ArkTS FlutterPage. */
+  static async setFlutterVideoLayout(params: SetFlutterVideoLayoutParams): Promise<void> {
+    return TgoRTCFlutter.getInstance().setFlutterVideoLayout(params)
+  }
+
+  /** Clears all Texture video tiles before the FlutterPage is hidden/destroyed. */
+  static async clearFlutterVideoLayout(): Promise<void> {
+    return TgoRTCFlutter.getInstance().clearFlutterVideoLayout()
   }
 
   /**
@@ -449,6 +474,61 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
     })
   }
 
+  async attachVideoSurface(params: AttachVideoSurfaceParams): Promise<void> {
+    this.checkInitialized()
+    return new Promise<void>((resolve, reject) => {
+      this.channel?.invokeMethod('attachVideoSurface', params, {
+        success: () => resolve(),
+        error: (code: string, msg: string) => reject(new Error(`${code}: ${msg}`)),
+        notImplemented: () => reject(new Error('Method not implemented'))
+      })
+    })
+  }
+
+  async detachVideoSurface(params: DetachVideoSurfaceParams): Promise<void> {
+    this.checkInitialized()
+    return new Promise<void>((resolve, reject) => {
+      this.channel?.invokeMethod('detachVideoSurface', params, {
+        success: () => resolve(),
+        error: (code: string, msg: string) => reject(new Error(`${code}: ${msg}`)),
+        notImplemented: () => reject(new Error('Method not implemented'))
+      })
+    })
+  }
+
+  async updateVideoSurface(params: UpdateVideoSurfaceParams): Promise<void> {
+    this.checkInitialized()
+    return new Promise<void>((resolve, reject) => {
+      this.channel?.invokeMethod('updateVideoSurface', params, {
+        success: () => resolve(),
+        error: (code: string, msg: string) => reject(new Error(`${code}: ${msg}`)),
+        notImplemented: () => reject(new Error('Method not implemented'))
+      })
+    })
+  }
+
+  async setFlutterVideoLayout(params: SetFlutterVideoLayoutParams): Promise<void> {
+    this.checkInitialized()
+    return new Promise<void>((resolve, reject) => {
+      this.channel?.invokeMethod('setFlutterVideoLayout', params, {
+        success: () => resolve(),
+        error: (code: string, msg: string) => reject(new Error(`${code}: ${msg}`)),
+        notImplemented: () => reject(new Error('Method not implemented'))
+      })
+    })
+  }
+
+  async clearFlutterVideoLayout(): Promise<void> {
+    this.checkInitialized()
+    return new Promise<void>((resolve, reject) => {
+      this.channel?.invokeMethod('clearFlutterVideoLayout', null, {
+        success: () => resolve(),
+        error: (code: string, msg: string) => reject(new Error(`${code}: ${msg}`)),
+        notImplemented: () => reject(new Error('Method not implemented'))
+      })
+    })
+  }
+
   /**
    * 当前是否存在通话房间。
    *
@@ -622,6 +702,19 @@ export class TgoRTCFlutter implements FlutterPlugin, MethodCallHandler {
             args.get('isLocal') as boolean,
             args.get('available') as boolean,
             args.get('muted') as boolean
+          )
+        }
+        break
+
+      case 'onVideoSurfaceStateChanged':
+        if (listener.onVideoSurfaceStateChanged !== undefined) {
+          const reason = args.get('reason') as string | undefined
+          listener.onVideoSurfaceStateChanged(
+            args.get('roomName') as string,
+            args.get('surfaceId') as string,
+            args.get('uid') as string,
+            args.get('state') as VideoSurfaceState,
+            reason
           )
         }
         break

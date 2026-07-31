@@ -48,6 +48,61 @@ export interface ConnectStatusInfo {
   reason: string
 }
 
+/** XComponent 视频填充方式。 */
+export type VideoFit = 'cover' | 'contain'
+
+/** 将指定成员摄像头轨道绑定到已加载的 ArkTS XComponent Surface。 */
+export interface AttachVideoSurfaceParams {
+  uid: string
+  surfaceId: string
+  isLocal: boolean
+  mirror?: boolean
+  fit?: VideoFit
+}
+
+/** 解绑一个 ArkTS XComponent Surface。 */
+export interface DetachVideoSurfaceParams {
+  surfaceId: string
+}
+
+/** 原子更新已绑定 Surface 的展示参数。 */
+export interface UpdateVideoSurfaceParams {
+  surfaceId: string
+  mirror?: boolean
+  fit?: VideoFit
+}
+
+/**
+ * One video Texture rectangle inside the single FlutterPage used by the
+ * ArkTS-controlled renderer. All geometry is normalised to that page's
+ * viewport, so ArkTS does not need to convert vp/px to Flutter logical pixels.
+ */
+export interface FlutterVideoTile {
+  tileId: string
+  uid: string
+  isLocal: boolean
+  left: number
+  top: number
+  width: number
+  height: number
+  zIndex?: number
+  visible?: boolean
+  mirror?: boolean
+  fit?: VideoFit
+}
+
+/** Updates the complete Flutter Texture video layout atomically. */
+export interface SetFlutterVideoLayoutParams {
+  tiles: FlutterVideoTile[]
+  /** Optional Flutter-side animation duration, 0..5000 ms. */
+  animationDurationMs?: number
+  /** Must match ArkTS overlay animation: linear/easeIn/easeOut/easeInOut. */
+  animationCurve?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut'
+}
+
+/** ArkTS Surface 与 WebRTC VideoSink 的真实状态。 */
+export type VideoSurfaceState = 'rendering' | 'waiting_track' | 'detached' | 'error'
+
 /**
  * 事件监听器接口
  */
@@ -81,6 +136,9 @@ export interface TgoRTCEventListener {
 
   /** 摄像头轨道可用性或静音状态变化。 */
   onVideoTrackChanged?: (roomName: string, uid: string, isLocal: boolean, available: boolean, muted: boolean) => void
+
+  /** ArkTS XComponent Surface 的绑定、首帧和释放状态。 */
+  onVideoSurfaceStateChanged?: (roomName: string, surfaceId: string, uid: string, state: VideoSurfaceState, reason?: string) => void
 }
 
 /**
@@ -137,6 +195,15 @@ export interface VideoTrackChangedArgs {
   isLocal: boolean
   available: boolean
   muted: boolean
+}
+
+/** XComponent 视频 Surface 状态事件参数。 */
+export interface VideoSurfaceStateChangedArgs {
+  roomName: string
+  surfaceId: string
+  uid: string
+  state: VideoSurfaceState
+  reason?: string
 }
 
 /**

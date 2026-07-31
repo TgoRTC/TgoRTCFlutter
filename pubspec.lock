@@ -173,11 +173,9 @@ packages:
   flutter_webrtc:
     dependency: "direct main"
     description:
-      path: "."
-      ref: HEAD
-      resolved-ref: "94a690ea7b61c0061a0ab641bedceda13ef2bafe"
-      url: "https://gitcode.com/openharmony-sig/fluttertpc_flutter_webrtc.git"
-    source: git
+      path: "../fluttertpc_flutter_webrtc"
+      relative: true
+    source: path
     version: "0.9.48+hotfix.1"
   http:
     dependency: transitive

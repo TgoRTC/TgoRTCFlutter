@@ -18,6 +18,7 @@ export 'manager/tgo_participant_manager.dart';
 export 'manager/tgo_audio_manager.dart';
 export 'participant/tgo_participant.dart';
 export 'track/tgo_track_renderer.dart';
+export 'pages/arkts_video_texture_layer.dart';
 
 /// The main entry point for the TgoRTC SDK.
 ///

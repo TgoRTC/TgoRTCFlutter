@@ -144,8 +144,11 @@ class TgoRoomManager {
 
     room = Room(
       roomOptions: const RoomOptions(
-        // AdaptiveStream: 根据视频元素尺寸自动调整订阅质量
-        adaptiveStream: true,
+        // HarmonyOS uses ArkTS XComponent external surfaces. They are not
+        // Flutter VideoTrackRenderer widgets, so LiveKit's Flutter
+        // visibility tracker sees no viewKey and would pause the remote video
+        // stream shortly after subscribing.
+        adaptiveStream: false,
         // Dynacast: 动态暂停没有订阅者的视频层，节省带宽
         dynacast: true,
         // 视频捕获默认设置（发布端）- 4K 最高画质

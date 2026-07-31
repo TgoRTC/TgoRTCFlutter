@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:tgortcflutter/tgortc.dart';
 import 'package:tgortcflutter/bridge/serializers.dart';
 import 'package:tgortcflutter/bridge/event_forwarder.dart';
+import 'package:tgortcflutter/bridge/tgo_video_surface_manager.dart';
 import 'package:tgortcflutter/utils/logger.dart';
 
 /// Handler for MethodChannel calls from HarmonyOS.
@@ -48,6 +49,16 @@ class TgoMethodHandlers {
         return _invite(call.arguments);
       case 'missed':
         return _missed(call.arguments);
+      case 'attachVideoSurface':
+        return _attachVideoSurface(call.arguments);
+      case 'detachVideoSurface':
+        return _detachVideoSurface(call.arguments);
+      case 'updateVideoSurface':
+        return _updateVideoSurface(call.arguments);
+      case 'setFlutterVideoLayout':
+        return _setFlutterVideoLayout(call.arguments);
+      case 'clearFlutterVideoLayout':
+        return _clearFlutterVideoLayout();
 
       // Query-type APIs
       case 'getConnectStatus':
@@ -154,6 +165,50 @@ class TgoMethodHandlers {
     final String roomName = map['roomName'] ?? '';
     final List<String> uids = List<String>.from(map['uids'] ?? []);
     TgoRTC.instance.participantManager.missed(roomName, uids);
+  }
+
+  static Future<void> _attachVideoSurface(dynamic args) {
+    final map = args as Map<dynamic, dynamic>;
+    return TgoVideoSurfaceManager.instance.attach(
+      uid: map['uid'] as String? ?? '',
+      surfaceId: map['surfaceId'] as String? ?? '',
+      isLocal: map['isLocal'] as bool? ?? false,
+      mirror: map['mirror'] as bool? ?? false,
+      fit: map['fit'] as String? ?? 'cover',
+    );
+  }
+
+  static Future<void> _detachVideoSurface(dynamic args) {
+    final map = args as Map<dynamic, dynamic>;
+    return TgoVideoSurfaceManager.instance.detach(
+      surfaceId: map['surfaceId'] as String? ?? '',
+    );
+  }
+
+  static Future<void> _updateVideoSurface(dynamic args) {
+    final map = args as Map<dynamic, dynamic>;
+    return TgoVideoSurfaceManager.instance.update(
+      surfaceId: map['surfaceId'] as String? ?? '',
+      mirror: map['mirror'] as bool?,
+      fit: map['fit'] as String?,
+    );
+  }
+
+  /// Updates the Flutter Texture layer while retaining the legacy XComponent
+  /// APIs above for applications that still use native Surface rendering.
+  static void _setFlutterVideoLayout(dynamic args) {
+    try {
+      TgoFlutterVideoLayoutController.instance.updateFromBridge(args);
+    } on ArgumentError catch (error) {
+      throw PlatformException(
+        code: 'invalid_flutter_video_layout',
+        message: error.message?.toString() ?? error.toString(),
+      );
+    }
+  }
+
+  static void _clearFlutterVideoLayout() {
+    TgoFlutterVideoLayoutController.instance.clear();
   }
 
   static Map<String, dynamic> _getConnectStatus() {

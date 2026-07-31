@@ -14,4 +14,4 @@ export { TgoRTCFlutter, InitOptions } from './src/main/ets/TgoRTCFlutter'
 export { ConnectivityStubPlugin } from './src/main/ets/ConnectivityStubPlugin'
 
 // 类型定义
-export { RoomInfo, Participant, ConnectStatus, ConnectStatusInfo, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams, RemoteParticipantLeftArgs, AudioOutputDeviceChangedArgs, ParticipantSpeakingArgs, VideoTrackChangedArgs } from './src/main/ets/Types'
+export { RoomInfo, Participant, ConnectStatus, ConnectStatusInfo, VideoFit, AttachVideoSurfaceParams, DetachVideoSurfaceParams, UpdateVideoSurfaceParams, FlutterVideoTile, SetFlutterVideoLayoutParams, VideoSurfaceState, TgoRTCEventListener, JoinRoomParams, InitParams, InviteParams, RemoteParticipantLeftArgs, AudioOutputDeviceChangedArgs, ParticipantSpeakingArgs, VideoTrackChangedArgs, VideoSurfaceStateChangedArgs } from './src/main/ets/Types'

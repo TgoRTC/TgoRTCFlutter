@@ -23,13 +23,15 @@ class TgoTrackRenderer {
   TgoParticipant? _participant;
   TrackSource source;
   RTCVideoViewObjectFit fit;
+  VideoViewMirrorMode? mirrorMode;
 
   TgoTrackRenderer({
     this.source = TrackSource.camera,
     this.fit = RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+    this.mirrorMode,
   });
 
-  void setParticipant(TgoParticipant participant) {
+  void setParticipant(TgoParticipant? participant) {
     _participant = participant;
   }
 
@@ -43,6 +45,7 @@ class TgoTrackRenderer {
       participant: _participant,
       source: source,
       fit: fit,
+      mirrorMode: mirrorMode,
     );
   }
 }
@@ -51,11 +54,13 @@ class _TgoTrackRendererWidget extends StatefulWidget {
   final TgoParticipant? participant;
   final TrackSource source;
   final RTCVideoViewObjectFit fit;
+  final VideoViewMirrorMode? mirrorMode;
 
   const _TgoTrackRendererWidget({
     this.participant,
     required this.source,
     required this.fit,
+    this.mirrorMode,
   });
 
   @override
@@ -121,9 +126,10 @@ class _TgoTrackRendererWidgetState extends State<_TgoTrackRendererWidget> {
     return VideoTrackRenderer(
       _videoTrack!,
       fit: widget.fit,
-      mirrorMode: TgoRTC.instance.options.mirror
-          ? VideoViewMirrorMode.mirror
-          : VideoViewMirrorMode.off,
+      mirrorMode: widget.mirrorMode ??
+          (TgoRTC.instance.options.mirror
+              ? VideoViewMirrorMode.mirror
+              : VideoViewMirrorMode.off),
     );
   }
 }
