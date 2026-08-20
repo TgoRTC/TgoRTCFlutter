@@ -42,6 +42,7 @@ class TgoParticipant {
   RemoteParticipant? _remoteParticipant;
   EventsListener<ParticipantEvent>? _listener;
   final String uid;
+  Future<void>? _cameraSwitchInFlight;
 
   // 视频信息相关
   final List<VideoInfoListener> _videoInfoListeners = [];
@@ -464,28 +465,65 @@ class TgoParticipant {
   }
 
   // local only
-  switchCamera() {
-    if (_localParticipant == null) return;
+  Future<void> switchCamera() {
+    final inFlight = _cameraSwitchInFlight;
+    if (inFlight != null) {
+      Logger.info('[CameraSwitch] coalesced uid=$uid');
+      return inFlight;
+    }
+
+    late final Future<void> operation;
+    operation = _performCameraSwitch().whenComplete(() {
+      if (identical(_cameraSwitchInFlight, operation)) {
+        _cameraSwitchInFlight = null;
+      }
+    });
+    _cameraSwitchInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _performCameraSwitch() async {
+    if (_localParticipant == null) {
+      throw StateError('Cannot switch camera without a local participant');
+    }
     final videoTrack = _localParticipant!.videoTrackPublications
         .where((pub) => pub.source == TrackSource.camera)
         .firstOrNull
         ?.track;
-    if (videoTrack != null) {
-      final options = videoTrack.currentOptions;
-      if (options is CameraCaptureOptions) {
-        final newPosition = options.cameraPosition == CameraPosition.front
-            ? CameraPosition.back
-            : CameraPosition.front;
-        videoTrack.setCameraPosition(newPosition).then((_) {
-          for (var listener in _cameraPositionListeners) {
-            if (newPosition == CameraPosition.front) {
-              listener(TgoCameraPosition.front);
-            } else {
-              listener(TgoCameraPosition.back);
-            }
-          }
-        });
-      }
+    if (videoTrack == null) {
+      throw StateError('Cannot switch camera without a published camera track');
+    }
+
+    final options = videoTrack.currentOptions;
+    if (options is! CameraCaptureOptions) {
+      throw StateError('Camera track has unsupported capture options');
+    }
+
+    final oldPosition = options.cameraPosition;
+    final newPosition = oldPosition == CameraPosition.front
+        ? CameraPosition.back
+        : CameraPosition.front;
+    Logger.info(
+        '[CameraSwitch] start uid=$uid from=$oldPosition to=$newPosition');
+
+    await videoTrack.setCameraPosition(newPosition);
+
+    // LiveKit restartTrack retains the LocalVideoTrack instance but replaces
+    // its MediaStreamTrack. Notify Surface observers explicitly so the local
+    // XComponent stops rendering the disposed track and binds the new one.
+    _notifyVideoTrackChanged(true, false);
+
+    // restartTrack has already awaited getUserMedia, replaceTrack and the new
+    // track start. Keep only a short settling window for the native first
+    // frame; HarmonyOS outbound stats are not reliable enough to gate this API
+    // and previously caused successful switches to time out after 8 seconds.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    Logger.info('[CameraSwitch] completed uid=$uid position=$newPosition');
+    for (var listener in _cameraPositionListeners) {
+      listener(newPosition == CameraPosition.front
+          ? TgoCameraPosition.front
+          : TgoCameraPosition.back);
     }
   }
 

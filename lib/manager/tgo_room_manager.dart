@@ -151,25 +151,25 @@ class TgoRoomManager {
         adaptiveStream: false,
         // Dynacast: 动态暂停没有订阅者的视频层，节省带宽
         dynacast: true,
-        // 视频捕获默认设置（发布端）- 4K 最高画质
+        // 部分鸿蒙设备的 Camera VideoOutput 在 4K 下 Start 成功后仍可能不出帧。
+        // 原生采集器补齐首帧检测前，默认使用兼容性更好的 720p。
         defaultCameraCaptureOptions: CameraCaptureOptions(
           maxFrameRate: 30,
-          params: VideoParametersPresets.h2160_169, // 4K: 3840x2160
+          params: VideoParametersPresets.h720_169,
         ),
         // 发布默认设置
         defaultVideoPublishOptions: VideoPublishOptions(
           simulcast: true, // 开启 simulcast 多层级发布
           videoCodec: 'vp8', // 编码器
-          // 主层级的编码参数（4K 最高质量）
-          videoEncoding: const VideoEncoding(
-            maxBitrate: 8000000, // 8Mbps (4K)
+          // 顶层编码与 720p 采集参数保持一致。
+          videoEncoding: VideoEncoding(
+            maxBitrate: 1700000,
             maxFramerate: 30,
           ),
-          // 自定义 simulcast 层级（从低到高，网络差时自动降级）
+          // LiveKit 会自动把 720p 原始画面作为顶层，这里只配置较低两层。
           videoSimulcastLayers: [
+            VideoParametersPresets.h180_169,
             VideoParametersPresets.h360_169, // 640x360, 450kbps
-            VideoParametersPresets.h720_169, // 1280x720, 1.7Mbps
-            VideoParametersPresets.h1080_169, // 1920x1080, 3Mbps
           ],
         ),
       ),

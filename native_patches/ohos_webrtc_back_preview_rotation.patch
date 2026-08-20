@@ -1,0 +1,34 @@
+--- a/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
++++ b/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
+@@ -32,6 +32,7 @@ using namespace ohos;
+ namespace {
+ 
+ constexpr int kFirstFrameTimeoutMs = 800;
++constexpr int kBackPreviewCorrectionDegrees = 180;
+ std::atomic<bool> gPreferPreviewOutput{false};
+ 
+ } // namespace
+@@ -855,6 +856,12 @@ void CameraCapturer::OnFrameAvailable(
+         Matrix transformMatrix;
+         const VideoRotation finalRotation = finalRotation_.load();
+         transformMatrix.PreRotate(finalRotation, 0.5f, 0.5f);
++        const bool needsBackPreviewCorrection =
++            !isCameraFrontFacing_ && !usingVideoOutput_.load(std::memory_order_acquire) &&
++            cameraOrientation_ == kVideoRotation_90;
++        if (needsBackPreviewCorrection) {
++            transformMatrix.PreRotate(kBackPreviewCorrectionDegrees, 0.5f, 0.5f);
++        }
+         const Matrix inputMatrix = textureBuffer->GetTransformMatrix();
+         Matrix newMatrix = inputMatrix;
+         newMatrix.PreConcat(transformMatrix);
+@@ -864,7 +871,9 @@ void CameraCapturer::OnFrameAvailable(
+             RTC_LOG(LS_INFO) << "[OhosCapture][CameraTransform] frame=" << capturedFrameCount_
+                              << " input=" << textureBuffer->width() << "x" << textureBuffer->height()
+                              << " front=" << isCameraFrontFacing_ << " cameraOrientation=" << cameraOrientation_
+-                             << " finalRotation=" << finalRotation << " input3x3=" << inputMatrix
++                             << " finalRotation=" << finalRotation
++                             << " backPreviewCorrection=" << needsBackPreviewCorrection
++                             << " input3x3=" << inputMatrix
+                              << " display3x3=" << transformMatrix << " output3x3=" << newMatrix;
+             lastLoggedCaptureTransform_ = inputMatrix;
+             hasLoggedCaptureTransform_ = true;

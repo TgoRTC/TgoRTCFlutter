@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:tgortcflutter/tgortc.dart';
 
+import '../utils/logger.dart';
+
 /// Owns the mapping between an ArkTS XComponent Surface and a LiveKit camera
 /// track. This class never creates UI; ArkTS owns the XComponent lifecycle.
 class TgoVideoSurfaceManager {
@@ -35,7 +37,10 @@ class TgoVideoSurfaceManager {
         // supplies the real RemoteParticipant, so there may be no later
         // video-track callback to wake the binding up.
         unawaited(
-          _refreshForParticipant(participant.uid, participant.isLocal),
+          refreshParticipant(
+            uid: participant.uid,
+            isLocal: participant.isLocal,
+          ),
         );
       },
     );
@@ -174,19 +179,33 @@ class TgoVideoSurfaceManager {
   void _observe(TgoParticipant participant) {
     if (!_observedParticipants.add(participant)) return;
     participant.addVideoTrackListener((_, __) {
-      unawaited(_refreshForParticipant(participant.uid, participant.isLocal));
+      unawaited(
+        refreshParticipant(
+          uid: participant.uid,
+          isLocal: participant.isLocal,
+        ),
+      );
     });
     participant.addLeaveListener(() {
       unawaited(_detachParticipant(participant.uid, participant.isLocal));
     });
   }
 
-  Future<void> _refreshForParticipant(String uid, bool isLocal) async {
+  /// Re-evaluates all XComponent bindings for a participant.
+  ///
+  /// A LiveKit camera restart keeps the [LocalVideoTrack] object but replaces
+  /// its underlying WebRTC track. Calling this after a camera switch detaches
+  /// the disposed track and binds the same Surface to the replacement track.
+  Future<void> refreshParticipant({
+    required String uid,
+    required bool isLocal,
+    bool reportBindFailure = false,
+  }) async {
     final bindings = _bindings.values
         .where((binding) => binding.uid == uid && binding.isLocal == isLocal)
         .toList(growable: false);
     for (final binding in bindings) {
-      await _refresh(binding);
+      await _refresh(binding, reportBindFailure: reportBindFailure);
     }
   }
 
@@ -229,6 +248,11 @@ class TgoVideoSurfaceManager {
       return;
     }
 
+    final oldTrackId = binding.trackId;
+    Logger.info(
+      '[VideoSurface] rebind surface=${binding.surfaceId} uid=${binding.uid} '
+      'oldTrack=${oldTrackId ?? 'none'} newTrack=$trackId',
+    );
     await _releaseRenderer(binding);
     final renderer = RTCVideoRenderer();
     try {
@@ -237,6 +261,10 @@ class TgoVideoSurfaceManager {
       binding.trackId = trackId;
       renderer.onFirstFrameRendered = () {
         if (identical(_bindings[binding.surfaceId], binding)) {
+          Logger.info(
+            '[VideoSurface] first frame surface=${binding.surfaceId} '
+            'track=$trackId',
+          );
           _emitState(binding, 'rendering');
         }
       };

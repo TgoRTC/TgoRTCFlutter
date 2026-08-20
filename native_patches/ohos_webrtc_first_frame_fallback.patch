@@ -1,0 +1,303 @@
+--- a/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.h
++++ b/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.h
+@@ -80,12 +80,19 @@
+     void OnDisplayChange(uint64_t displayId) override;
+ 
+ private:
++    struct FirstFrameWatchdogState;
++
+     Camera_Device* SelectCameraDevice();
+     void GetCameraOrientationAndSceneMode(Camera_Device* device);
+     Camera_Profile* FindPreviewProfile(ohos::CameraOutputCapability& capability, Camera_Device* device);
+     Camera_VideoProfile* FindVideoProfile(ohos::CameraOutputCapability& capability, Camera_Device* device);
+     bool StartCaptureSession(Camera_Profile* previewProfile, Camera_VideoProfile* videoProfile);
+     bool StartCaptureSessionForOutput(Camera_Profile* previewProfile, Camera_VideoProfile* videoProfile);
++    void ArmFirstFrameWatchdog();
++    void CancelFirstFrameWatchdog();
++    void HandleFirstFrameTimeout();
++    bool SwitchToPreviewOutputAfterFirstFrameTimeout();
++    void CleanupAfterFallbackFailure();
+     void ResetCaptureOutputs();
+     bool ReopenCameraInputForPreviewFallback();
+     void UpdateRotation();
+@@ -98,6 +105,10 @@
+     bool isStarted_{false};
+     // 摄像头切换进行中标记(防重入; 切换期间屏蔽 NotifyCapturedStop)。
+     std::atomic<bool> isSwitching_{false};
++    // VideoOutput 首帧超时回退期间，忽略旧 output 的 FrameEnd 停止通知。
++    std::atomic<bool> isRuntimeFallback_{false};
++    std::atomic<bool> firstFrameReceived_{false};
++    std::atomic<bool> usingVideoOutput_{false};
+ 
+     bool useVideoSceneMode_{false};
+     bool isCameraFrontFacing_{false};
+@@ -118,6 +129,7 @@
+     Matrix lastLoggedCaptureTransform_;
+     uint64_t capturedFrameCount_{0};
+     bool hasLoggedCaptureTransform_{false};
++    std::shared_ptr<FirstFrameWatchdogState> firstFrameWatchdog_;
+ };
+ 
+ } // namespace webrtc
+--- a/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
++++ b/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
+@@ -20,13 +20,28 @@
+ #include <ohcamera/camera_device.h>
+ #include <ohcamera/capture_session.h>
+ 
+-#include <algorithm>
++#include <algorithm>
++
++#include "api/units/time_delta.h"
++#include "rtc_base/logging.h"
+ 
+-#include "rtc_base/logging.h"
+-
+ namespace webrtc {
+ 
+-using namespace ohos;
++using namespace ohos;
++
++namespace {
++
++constexpr int kFirstFrameTimeoutMs = 2000;
++
++} // namespace
++
++// The watchdog task and all writes to owner run on OhosVideoTrackSource's
++// dedicated capturer thread. Keeping this state separate lets Stop/Release
++// invalidate a delayed task without retaining a raw CameraCapturer pointer
++// after a camera switch.
++struct CameraCapturer::FirstFrameWatchdogState {
++    CameraCapturer* owner = nullptr;
++};
+ 
+ std::unique_ptr<CameraCapturer> CameraCapturer::Create(std::string deviceId, video::VideoProfile profile)
+ {
+@@ -59,8 +74,8 @@
+     // 摄像头切换期间(StopInternal→StartInternal)屏蔽 stop 通知: 否则 track readyState 会短暂变
+     // 'ended', 触发上层 RTCVideoView RemoveSink→capturer->Stop(), 与 SwitchCamera 的 StartInternal
+     // 竞态导致新建 session 又被停(卡死)。是否补发由 SwitchCamera 末尾按重建结果决定。
+-    if (isSwitching_.load()) {
+-        return;
++    if (isSwitching_.load() || isRuntimeFallback_.load()) {
++        return;
+     }
+     UNUSED std::lock_guard<std::mutex> lock(obsMutex_);
+     if (observer_) {
+@@ -449,9 +464,133 @@
+     }
+     RTC_LOG(LS_INFO) << "[OhosCapture][OutputRoute] active=" << outputRoute
+                      << " surfaceId=" << surfaceId;
++    usingVideoOutput_.store(useVideoOutput, std::memory_order_release);
+     return true;
++}
++
++void CameraCapturer::ArmFirstFrameWatchdog()
++{
++    CancelFirstFrameWatchdog();
++
++    rtc::Thread* captureThread = rtc::Thread::Current();
++    if (captureThread == nullptr) {
++        RTC_LOG(LS_ERROR) << "[OhosCapture][FirstFrame] cannot arm watchdog: no current capturer thread";
++        return;
++    }
++
++    auto state = std::make_shared<FirstFrameWatchdogState>();
++    state->owner = this;
++    firstFrameWatchdog_ = state;
++    RTC_LOG(LS_INFO) << "[OhosCapture][FirstFrame] watchdog armed route=video timeoutMs="
++                     << kFirstFrameTimeoutMs;
++    captureThread->PostDelayedTask(
++        [state] {
++            if (state->owner != nullptr) {
++                state->owner->HandleFirstFrameTimeout();
++            }
++        },
++        TimeDelta::Millis(kFirstFrameTimeoutMs));
++}
++
++void CameraCapturer::CancelFirstFrameWatchdog()
++{
++    if (firstFrameWatchdog_ != nullptr) {
++        firstFrameWatchdog_->owner = nullptr;
++        firstFrameWatchdog_.reset();
++    }
+ }
+ 
++void CameraCapturer::HandleFirstFrameTimeout()
++{
++    CancelFirstFrameWatchdog();
++
++    if (!isInitialized_ || !isStarted_ || !usingVideoOutput_.load(std::memory_order_acquire)) {
++        return;
++    }
++    if (firstFrameReceived_.load(std::memory_order_acquire)) {
++        RTC_LOG(LS_INFO) << "[OhosCapture][FirstFrame] watchdog satisfied route=video";
++        return;
++    }
++
++    RTC_LOG(LS_WARNING) << "[OhosCapture][FirstFrame] timeout route=video timeoutMs="
++                        << kFirstFrameTimeoutMs
++                        << "; rebuilding CameraInput and switching to PreviewOutput";
++    isRuntimeFallback_.store(true, std::memory_order_release);
++    if (SwitchToPreviewOutputAfterFirstFrameTimeout()) {
++        RTC_LOG(LS_INFO) << "[OhosCapture][FirstFrame] fallback active route=preview-fallback";
++        return;
++    }
++
++    isRuntimeFallback_.store(false, std::memory_order_release);
++    RTC_LOG(LS_ERROR) << "[OhosCapture][FirstFrame] PreviewOutput fallback failed";
++    if (!captureSession_.IsEmpty()) {
++        // Preserve StopInternal's safety rule: if the camera service refused
++        // to stop the running session, do not release its input/output under it.
++        RTC_LOG(LS_ERROR) << "[OhosCapture][FirstFrame] keeping current session because stop did not complete";
++        return;
++    }
++    CleanupAfterFallbackFailure();
++}
++
++bool CameraCapturer::SwitchToPreviewOutputAfterFirstFrameTimeout()
++{
++    if (captureSession_.IsEmpty()) {
++        RTC_LOG(LS_ERROR) << "[OhosCapture][OutputRoute] runtime fallback failed stage=no_active_session";
++        return false;
++    }
++    if (!captureSession_.Stop()) {
++        RTC_LOG(LS_ERROR) << "[OhosCapture][OutputRoute] runtime fallback failed stage=stop_video_session";
++        return false;
++    }
++
++    captureSession_.Reset();
++    ResetCaptureOutputs();
++    usingVideoOutput_.store(false, std::memory_order_release);
++
++    if (!ReopenCameraInputForPreviewFallback()) {
++        RTC_LOG(LS_ERROR) << "[OhosCapture][OutputRoute] runtime fallback failed stage=reopen_input";
++        return false;
++    }
++
++    Camera_Device* device = nullptr;
++    for (std::size_t i = 0; i < cameraDevices_.Size(); ++i) {
++        if (cameraDevices_[i]->cameraId == deviceId_) {
++            device = cameraDevices_[i];
++            break;
++        }
++    }
++    if (device == nullptr) {
++        RTC_LOG(LS_ERROR) << "[OhosCapture][OutputRoute] runtime fallback failed stage=find_camera";
++        return false;
++    }
++
++    auto capability = CameraManager::GetInstance().GetSupportedCameraOutputCapability(device);
++    Camera_Profile* previewProfile = FindPreviewProfile(capability, device);
++    if (previewProfile == nullptr) {
++        RTC_LOG(LS_ERROR) << "[OhosCapture][OutputRoute] runtime fallback failed stage=find_preview_profile";
++        return false;
++    }
++
++    firstFrameReceived_.store(false, std::memory_order_release);
++    return StartCaptureSessionForOutput(previewProfile, nullptr);
++}
++
++void CameraCapturer::CleanupAfterFallbackFailure()
++{
++    captureSession_.Reset();
++    ResetCaptureOutputs();
++    usingVideoOutput_.store(false, std::memory_order_release);
++
++    if (!input_.IsEmpty()) {
++        input_.Close();
++        input_.Reset();
++    }
++    cameraDevices_.Reset();
++    ohos::DisplayManager::GetInstance().UnregisterChangeCallback(this);
++    isStarted_ = false;
++    NotifyCapturedStop();
++}
++
+ void CameraCapturer::ResetCaptureOutputs()
+ {
+     if (!videoOutput_.IsEmpty()) {
+@@ -546,20 +685,28 @@
+         return;
+     }
+ 
++    firstFrameReceived_.store(false, std::memory_order_release);
++    usingVideoOutput_.store(false, std::memory_order_release);
+     if (!StartCaptureSession(previewProfile, videoProfile)) {
+         NotifyCapturedStart(false);
+         return;
+-    }
+-
+-    isStarted_ = true;
+-    NotifyCapturedStart(true);
+-}
+-
+-void CameraCapturer::StopInternal()
+-{
+-    RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+-
+-    if (!isStarted_) {
++    }
++
++    isStarted_ = true;
++    NotifyCapturedStart(true);
++    if (usingVideoOutput_.load(std::memory_order_acquire)) {
++        ArmFirstFrameWatchdog();
++    }
++}
++
++void CameraCapturer::StopInternal()
++{
++    RTC_LOG(LS_VERBOSE) << __FUNCTION__;
++
++    CancelFirstFrameWatchdog();
++    isRuntimeFallback_.store(false, std::memory_order_release);
++
++    if (!isStarted_) {
+         RTC_LOG(LS_ERROR) << "Capture session is not started";
+         return;
+     }
+@@ -577,10 +724,12 @@
+     input_.Close();
+     input_.Reset();
+ 
+-    cameraDevices_.Reset();
+-    ohos::DisplayManager::GetInstance().UnregisterChangeCallback(this);
+-    isStarted_ = false;
+-}
++    cameraDevices_.Reset();
++    ohos::DisplayManager::GetInstance().UnregisterChangeCallback(this);
++    firstFrameReceived_.store(false, std::memory_order_release);
++    usingVideoOutput_.store(false, std::memory_order_release);
++    isStarted_ = false;
++}
+ 
+ void CameraCapturer::SetZoomRatio(double ratio)
+ {
+@@ -676,10 +825,20 @@
+ 
+ void CameraCapturer::OnFrameAvailable(
+     rtc::scoped_refptr<VideoFrameBuffer> buffer, int64_t timestampUs, VideoRotation rotation)
+-{
+-    RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
+-
+-    (void)rotation;
++{
++    RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
++
++    const bool isFirstFrame = !firstFrameReceived_.exchange(true, std::memory_order_acq_rel);
++    if (isFirstFrame) {
++        if (!usingVideoOutput_.load(std::memory_order_acquire)) {
++            isRuntimeFallback_.store(false, std::memory_order_release);
++        }
++        RTC_LOG(LS_INFO) << "[OhosCapture][FirstFrame] received route="
++                         << (usingVideoOutput_.load(std::memory_order_acquire) ? "video" : "preview-fallback")
++                         << " input=" << buffer->width() << "x" << buffer->height();
++    }
++
++    (void)rotation;
+     VideoRotation frameRotation = kVideoRotation_0;
+ 
+     if (buffer->type() == VideoFrameBuffer::Type::kNative) {

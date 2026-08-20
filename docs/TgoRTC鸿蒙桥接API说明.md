@@ -34,6 +34,15 @@ ArkTS Surface 的能力；只替换 `tgortc` HAR 不会获得多路原生渲染�
   - `cameraEnabled` (boolean, 可选): 初始是否开启摄像头，默认 `true`。
   - `maxParticipants` (number, 可选): 最大人数限制，默认 `9`。
 
+当前版本的本地摄像头默认采集参数为 `1280×720 @ 30fps`，VP8 顶层最大码率为
+`1.7 Mbps`，simulcast 为 `180p / 360p / 720p`。这是 SDK 内部发布参数，`joinRoom` 暂不提供
+单独的分辨率字段。此前的 4K 默认值在部分鸿蒙真机上存在 Camera Session 启动成功但无首帧的问题，
+因此已降为兼容性更好的 720p。
+
+鸿蒙 native 采集层会在 VideoOutput 启动后等待首帧；800ms 内仍未收到 NativeImage/WebRTC 帧时，会重建
+`CameraInput` 并自动切换到同尺寸 PreviewOutput。首次超时后，同一进程的后续摄像头切换会直接使用
+PreviewOutput，避免重复等待超时。该行为不需要调用方重新加入房间或重新绑定 Surface。
+
 ### leaveRoom
 离开当前房间。
 - **参数**: 无。
@@ -49,10 +58,20 @@ ArkTS Surface 的能力；只替换 `tgortc` HAR 不会获得多路原生渲染�
 ### setSpeakerphoneOn
 控制扬声器开关。
 - **参数**: `on` (boolean)。
+- HarmonyOS 会直接调用 `flutter_webrtc` 音频路由；`Future` 成功后 SDK 内的扬声器状态才会更新。
 
 ### switchCamera
 切换前后摄像头。
 - **参数**: 无。
+- 该调用会等待 LiveKit 完成新摄像头创建、sender track 替换及启动，并保留约 300ms 的稳定窗口。切换期间的重复调用会合并到同一个任务，避免多个 Capture Session 并发启停；不使用可能短暂为空的 HarmonyOS outbound stats 阻塞返回。
+- HarmonyOS 插件使用视频 track ID 作为 `RTCRtpSender.id` 为空时的稳定 ID，并在 PeerConnection 生命周期内缓存
+  sender 映射。正常切换日志应出现 `getRtpSenderById cache hit: <trackId>`，不应再出现
+  `rtpSenderSetTrack(): sender is null`。
+- LiveKit 替换底层 `MediaStreamTrack` 后，SDK 会自动将原本地 XComponent Surface 重绑到新 track。
+  正常日志应出现 `[VideoSurface] rebind ... oldTrack=... newTrack=...`，然后出现同一 `surfaceId`
+  的新 `SinkAttach`和 `[VideoSurface] first frame`。
+- 如果集成工程已使用本版本的 `flutter_assets`，但仍出现上述 `sender is null`，说明加载的仍是旧
+  `flutter_webrtc.har`；需要替换 HAR、重新执行 Sync/构建并卸载旧应用后重装。
 
 ### invite
 邀请参与者（更新 SDK 内部参与者列表并触发通知）。

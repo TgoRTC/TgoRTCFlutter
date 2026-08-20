@@ -68,37 +68,46 @@ TgoRTC SDK 采用 **Flutter 视频组件 + API 桥接** 的混合架构：
 
 ```
 tgortc-sdk/
-├── tgortc-1.0.0.har      # TgoRTC SDK 主模块
-├── flutter.har            # Flutter 引擎
-└── flutter_assets/        # Dart 编译产物
-    ├── flutter_assets/
+├── tgortc-1.0.2.har       # TgoRTC ArkTS 桥接
+├── flutter_webrtc.har     # XComponent、摄像头和 WebRTC native 能力
+├── flutter.har            # Flutter 运行时
+└── flutter_assets/        # 默认入口的完整 Dart 编译产物
+    ├── kernel_blob.bin
+    ├── vm_snapshot_data
+    ├── isolate_snapshot_data
     ├── icudtl.dat
     └── ...
 ```
 
+上述四部分必须来自同一发布批次并整体更新。复制到集成工程的
+`entry/src/main/resources/rawfile/flutter_assets/` 时，应复制该目录的内容，不能形成
+`flutter_assets/flutter_assets/` 的重复层级。
+
 **flutter_assets 在本项目中的位置与获取方式**（使用方常问）：
 
-- **本仓库里没有预置的 `flutter_assets` 文件夹**，它是 Flutter 构建生成的产物，且已被 `.gitignore` 忽略。
+- `flutter_assets` 是 Flutter 构建产物，不是手工维护的源码目录。开发构建输出位于 `build/`；发布包中的
+  `dist/flutter_assets/` 是由 SDK 提供方从该输出完整导出的交付副本。
 - **生成位置**（在本项目根目录执行鸿蒙构建后）：
   - 路径：**`build/ohos/flutter_assets`**（相对于项目根目录 `tgortcflutter/`）。
-- **关于 `flutter build ohos`**：**官方 Flutter SDK 不支持该命令**（会报 `Could not find a subcommand named "ohos"`）。要生成 `flutter_assets` 有两种方式：
-  1. **使用鸿蒙版 Flutter SDK**：安装支持 Ohos 的 Flutter 后再执行 `flutter build ohos`。参考：[OpenHarmony-TPC Flutter](https://gitcode.com/openharmony-tpc/flutter_flutter)。
+- **关于构建命令**：标准 Flutter SDK 不支持 HarmonyOS/HAP 构建。要生成 `flutter_assets` 有两种方式：
+  1. **使用鸿蒙版 Flutter SDK**：在项目根目录执行 `flutter build hap --debug`。参考：[OpenHarmony-TPC Flutter](https://gitcode.com/openharmony-tpc/flutter_flutter)。
   2. **使用 DevEco Studio 构建**：用 DevEco Studio 打开 `ohos/` 目录，执行 **Build → Build Hap(s)/APP(s)**，构建过程会调用 Flutter 并生成 `build/ohos/flutter_assets`（需在 DevEco 中配置好 Flutter 或鸿蒙版 Flutter）。
 - **使用方如何拿到**：
-  - **预编译集成**：由 SDK 提供方在发布包中附带（提供方执行 `scripts/build_har.sh` 后，该脚本会把 `build/ohos/flutter_assets` 复制到 **`dist/flutter_assets/`**，随 tgortc-x.x.x.har、flutter.har 一起分发）。
+  - **预编译集成**：由 SDK 提供方在发布包中附带（提供方构建后把 `build/ohos/flutter_assets` 完整复制到 **`dist/flutter_assets/`**，随 `tgortc-1.0.2.har`、`flutter_webrtc.har`、`flutter.har` 一起分发）。
   - **源码集成**：按上面任一方式在本项目根目录完成鸿蒙构建，得到 `build/ohos/flutter_assets`，再复制到鸿蒙工程的 `entry/src/main/resources/rawfile/` 下。
 
 ### 3.2 添加到项目
 
-1. 将上述文件复制到你的鸿蒙项目 `libs/` 目录：
+1. 将三个 HAR 复制到鸿蒙项目的 `har/`，并把完整 Flutter 资源复制到 rawfile：
 
 ```
 your_ohos_project/
-├── entry/
-├── libs/
-│   ├── tgortc-1.0.0.har
-│   ├── flutter.har
+├── entry/src/main/resources/rawfile/
 │   └── flutter_assets/
+├── har/
+│   ├── tgortc-1.0.2.har
+│   ├── flutter_webrtc.har
+│   └── flutter.har
 └── oh-package.json5
 ```
 
@@ -107,8 +116,9 @@ your_ohos_project/
 ```json5
 {
   "dependencies": {
-    "@anthropic/tgortc": "file:./libs/tgortc-1.0.0.har",
-    "@ohos/flutter_ohos": "file:./libs/flutter.har"
+    "@anthropic/tgortc": "file:./har/tgortc-1.0.2.har",
+    "@ohos/flutter_ohos": "file:./har/flutter.har",
+    "flutter_webrtc": "file:./har/flutter_webrtc.har"
   }
 }
 ```
@@ -340,9 +350,13 @@ await TgoRTCFlutter.setCameraEnabled(true)
 
 // 切换前后摄像头
 await TgoRTCFlutter.switchCamera()
+// 返回时 LiveKit 已完成新摄像头创建、sender track 替换及启动，
+// 本地 Surface 也已重绑到新 track；
+// 切换期间的重复调用会被合并
 
 // 扬声器开关
 await TgoRTCFlutter.setSpeakerphoneOn(true)
+// HarmonyOS 由 flutter_webrtc 直接切换扬声器/听筒路由
 ```
 
 ### 5.4 获取状态

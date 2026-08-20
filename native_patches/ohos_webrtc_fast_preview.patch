@@ -1,0 +1,36 @@
+--- a/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
++++ b/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
+@@ -31,7 +31,8 @@ using namespace ohos;
+ 
+ namespace {
+ 
+-constexpr int kFirstFrameTimeoutMs = 2000;
++constexpr int kFirstFrameTimeoutMs = 800;
++std::atomic<bool> gPreferPreviewOutput{false};
+ 
+ } // namespace
+ 
+@@ -512,6 +513,7 @@ void CameraCapturer::HandleFirstFrameTimeout()
+         return;
+     }
+ 
++    gPreferPreviewOutput.store(true, std::memory_order_release);
+     RTC_LOG(LS_WARNING) << "[OhosCapture][FirstFrame] timeout route=video timeoutMs="
+                         << kFirstFrameTimeoutMs
+                         << "; rebuilding CameraInput and switching to PreviewOutput";
+@@ -665,8 +667,14 @@ void CameraCapturer::StartInternal()
+     GetCameraOrientationAndSceneMode(device);
+     UpdateRotation();
+     auto capability = CameraManager::GetInstance().GetSupportedCameraOutputCapability(device);
+-    Camera_VideoProfile* videoProfile = FindVideoProfile(capability, device);
+     Camera_Profile* previewProfile = FindPreviewProfile(capability, device);
++    const bool preferPreviewOutput = gPreferPreviewOutput.load(std::memory_order_acquire);
++    Camera_VideoProfile* videoProfile =
++        preferPreviewOutput ? nullptr : FindVideoProfile(capability, device);
++    if (preferPreviewOutput) {
++        RTC_LOG(LS_INFO) << "[OhosCapture][OutputRoute] skipping VideoOutput because a previous "
++                            "capturer timed out; using PreviewOutput directly";
++    }
+     if (videoProfile == nullptr && previewProfile == nullptr) {
+         RTC_LOG(LS_ERROR) << "[OhosCapture][OutputRoute] failed to find a compatible camera output profile";
+         NotifyCapturedStart(false);

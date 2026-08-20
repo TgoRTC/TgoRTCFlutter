@@ -159,16 +159,43 @@ surface 交给 WebRTC 编码；`PreviewOutput` 只在设备没有匹配 VideoPro
 [OhosCapture][OutputRoute] video candidate index=<n> ... size=<w>x<h> fps=<min>-<max>
 [OhosCapture][OutputRoute] attempt=video surfaceId=<id> size=<w>x<h> ...
 [OhosCapture][OutputRoute] active=video surfaceId=<id>
+[OhosCapture][FirstFrame] watchdog armed route=video timeoutMs=800
 ```
 
-只有 `active=video` 才表示 VideoOutput 会话已真正启动。若日志出现 `setup failed output=video`，SDK 会释放
-失败会话，关闭并重建 `CameraInput`，再自动尝试 `attempt=preview-fallback`。这一步会输出
+`active=video` 只表示 VideoOutput 会话配置完成且 `CaptureSession.Start()` 返回成功，不代表 NativeImage/WebRTC
+已经收到首帧。必须继续看到 `[OhosCapture][CameraTransform] frame=1`，并确认发送统计中的 `input_fps`、
+`width`、`height` 非零，才能判定采集链路真正工作。
+
+若日志出现 `setup failed output=video`，SDK 会释放失败会话，关闭并重建 `CameraInput`，再自动尝试
+`attempt=preview-fallback`。这一步会输出
 `resetting CameraInput before PreviewOutput fallback` 和 `CameraInput reset complete`；缺少后者时不应继续判断
 PreviewOutput 本身。看到 `active=preview-fallback` 表示本地视频已回到原先可用的 PreviewOutput 路线，但不能据此
 宣称重影已修复。应同时提供候选 profile 日志和 `OesFingerprint` / `I420Fingerprint`。
 
-这个改动只在 `libohos_webrtc.so` 内，交付时仅替换同次打包的 `flutter_webrtc.har` 即可；不需要因它替换
-`flutter.har`、`flutter_assets` 或 `tgortc-*.har`。
+如果已经出现 `active=video`，随后 800ms 内仍没有 NativeImage/WebRTC 首帧，SDK 会输出
+`[OhosCapture][FirstFrame] timeout route=video timeoutMs=800`，停止旧会话、关闭并重建 `CameraInput`，再自动执行
+`attempt=preview-fallback`。成功重建后应依次看到 `active=preview-fallback`、
+`fallback active route=preview-fallback`、`received route=preview-fallback` 和 `CameraTransform frame=1`。
+首帧到达后 WebRTC 的 `input_fps`、`width`、`height` 也必须变为非零，才算恢复成功。
+
+若超时后缺少 `CameraInput reset complete`，或出现 `runtime fallback failed stage=<stage>`，说明相机服务拒绝停止、
+重开输入或创建 PreviewOutput；应保留完整日志继续定位。该现象仍属于摄像头采集链路，不能归因于 XComponent
+Surface。Flutter 默认采集保持 `1280×720 @ 30fps`。
+
+VideoOutput 路线本身的 native 改动只在 `libohos_webrtc.so` 内，单独交付该改动时只需替换同次打包的
+`flutter_webrtc.har`。首帧超时回退也只修改 native 采集代码，因此已经使用最新 720p `flutter_assets` 的集成方
+只需替换本次生成的 `flutter_webrtc.har`；从更旧版本升级时仍应按发布包的四件套整体更新。
+
+## 前后摄像头切换后卡死
+
+如果初始前置摄像头已经持续产帧，而单次切换后出现 `rtpSenderReplaceTrack`、两个 sender 的
+`sender id : undefined`，随后报 `rtpSenderSetTrack(): sender is null`，故障不在 XComponent Surface，也不是
+用户重复点击。旧 ArkTS 插件把空 sender ID 回退成固定字符串 `senderId`，导致音频和视频 sender 冲突且无法反查；
+新摄像头因此只会 `Init` 而不会 `Start`。
+
+当前 `flutter_webrtc.har` 已改为使用 track ID 建立并缓存 sender 映射。替换后切换路径应出现
+`getRtpSenderById cache hit: <trackId>`，随后新 `CameraCapturer` 执行 `Start` 并收到首帧。连续第二次、第三次切换
+也必须命中最初缓存的 sender；仅第一次成功不能作为完整验收。
 
 ## 首帧后静止与本地重影诊断
 

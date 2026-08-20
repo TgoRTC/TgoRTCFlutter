@@ -150,7 +150,14 @@ class TgoMethodHandlers {
   }
 
   static Future<void> _switchCamera() async {
-    TgoRTC.instance.participantManager.getLocalParticipant().switchCamera();
+    final participant =
+        TgoRTC.instance.participantManager.getLocalParticipant();
+    await participant.switchCamera();
+    await TgoVideoSurfaceManager.instance.refreshParticipant(
+      uid: participant.uid,
+      isLocal: true,
+      reportBindFailure: true,
+    );
   }
 
   static Future<void> _invite(dynamic args) async {

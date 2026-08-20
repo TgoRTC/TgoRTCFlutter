@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter_webrtc/flutter_webrtc.dart' as rtc;
 import 'package:livekit_client/livekit_client.dart';
+
+import '../utils/logger.dart';
 
 /// Manager for handling audio output and device changes.
 ///
@@ -57,8 +60,14 @@ class TgoAudioManager {
   /// - [forceSpeakerOutput]: 仅 iOS 有效，如果为 true，即使连接了耳机/蓝牙也强制使用扬声器
   Future<void> setSpeakerphoneOn(bool on,
       {bool forceSpeakerOutput = false}) async {
-    // 注意：鸿蒙版不支持 forceSpeakerOutput 参数
-    await Hardware.instance.setSpeakerphoneOn(on);
+    // LiveKit 当前只在 iOS 分支调用 flutter_webrtc，HarmonyOS
+    // 需要直接调用底层音频路由，否则会记录成功但实际不切换设备。
+    if (lkPlatformIs(PlatformType.ohos)) {
+      Logger.info('[AudioRoute] setSpeakerphoneOn=$on platform=ohos');
+      await rtc.Helper.setSpeakerphoneOn(on);
+    } else {
+      await Hardware.instance.setSpeakerphoneOn(on);
+    }
     _isSpeakerOn = on;
   }
 
@@ -68,10 +77,14 @@ class TgoAudioManager {
   }
 
   /// 是否可以切换扬声器
-  bool get canSwitchSpeakerphone => Hardware.instance.canSwitchSpeakerphone;
+  bool get canSwitchSpeakerphone => lkPlatformIs(PlatformType.ohos)
+      ? true
+      : Hardware.instance.canSwitchSpeakerphone;
 
   /// 当前是否使用扬声器
-  bool? get speakerOn => Hardware.instance.speakerOn;
+  bool? get speakerOn => lkPlatformIs(PlatformType.ohos)
+      ? _isSpeakerOn
+      : Hardware.instance.speakerOn;
 
   /// 获取音频输入设备列表（麦克风）
   Future<List<MediaDevice>> getAudioInputDevices() async {
