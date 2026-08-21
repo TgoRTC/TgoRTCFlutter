@@ -35,6 +35,21 @@ class TgoRoomManager {
   static final TgoRoomManager _instance = TgoRoomManager._internal();
   static TgoRoomManager get instance => _instance;
 
+  // HarmonyOS 的原生硬件编解码工厂支持 H.264/H.265，不支持 VP8。
+  // 使用 VP8 会让 720p 编码和解码同时落到 CPU，接收速度低于网络帧率时
+  // WebRTC 会持续播放旧帧并累积数秒延迟。
+  static const String _harmonyVideoCodec = 'h264';
+  static const int _harmonyCaptureMaxFps = 24;
+  static const int _harmonyRemoteMaxFps = 15;
+  static const VideoQuality _harmonyRemoteVideoQuality = VideoQuality.MEDIUM;
+  static const VideoParameters _harmonyMediumVideoParameters = VideoParameters(
+    dimensions: VideoDimensionsPresets.h360_169,
+    encoding: VideoEncoding(
+      maxBitrate: 450000,
+      maxFramerate: _harmonyRemoteMaxFps,
+    ),
+  );
+
   final List<Function(String roomName, ConnectStatus status, String reason)>
       _connectListeners = [];
   ConnectStatus _connectStatus = ConnectStatus.disconnected;
@@ -142,8 +157,16 @@ class TgoRoomManager {
     _setConnectStatus(
         roomInfo.roomName, ConnectStatus.connecting, "connecting");
 
+    final isHarmony = lkPlatformIs(PlatformType.ohos);
+    final publishCodec = isHarmony ? _harmonyVideoCodec : 'vp8';
+    Logger.info('[MediaPolicy] platform=${lkPlatform().name} '
+        'publishCodec=$publishCodec '
+        'captureMaxFps=${isHarmony ? _harmonyCaptureMaxFps : 30} '
+        'remoteQuality=${isHarmony ? _harmonyRemoteVideoQuality.name : 'auto'} '
+        'remoteMaxFps=${isHarmony ? _harmonyRemoteMaxFps : 'auto'}');
+
     room = Room(
-      roomOptions: const RoomOptions(
+      roomOptions: RoomOptions(
         // HarmonyOS uses ArkTS XComponent external surfaces. They are not
         // Flutter VideoTrackRenderer widgets, so LiveKit's Flutter
         // visibility tracker sees no viewKey and would pause the remote video
@@ -154,22 +177,35 @@ class TgoRoomManager {
         // 部分鸿蒙设备的 Camera VideoOutput 在 4K 下 Start 成功后仍可能不出帧。
         // 原生采集器补齐首帧检测前，默认使用兼容性更好的 720p。
         defaultCameraCaptureOptions: CameraCaptureOptions(
-          maxFrameRate: 30,
+          maxFrameRate: (isHarmony ? _harmonyCaptureMaxFps : 30).toDouble(),
           params: VideoParametersPresets.h720_169,
         ),
         // 发布默认设置
         defaultVideoPublishOptions: VideoPublishOptions(
           simulcast: true, // 开启 simulcast 多层级发布
-          videoCodec: 'vp8', // 编码器
+          // HarmonyOS 的硬件工厂只支持 H.264/H.265。H.264 可避免
+          // 720p VP8 软件编解码同时占满 CPU。
+          videoCodec: publishCodec,
+          // LiveKit 默认会在主编码不是 VP8 时启用 VP8 backup codec。
+          // HarmonyOS 禁止该备份，否则仍可能额外启动软件 VP8 编码。
+          backupVideoCodec: BackupVideoCodec(
+            enabled: !isHarmony,
+            codec: 'vp8',
+            simulcast: !isHarmony,
+          ),
           // 顶层编码与 720p 采集参数保持一致。
           videoEncoding: VideoEncoding(
             maxBitrate: 1700000,
-            maxFramerate: 30,
+            maxFramerate: isHarmony ? _harmonyCaptureMaxFps : 30,
           ),
           // LiveKit 会自动把 720p 原始画面作为顶层，这里只配置较低两层。
           videoSimulcastLayers: [
             VideoParametersPresets.h180_169,
-            VideoParametersPresets.h360_169, // 640x360, 450kbps
+            // HarmonyOS 默认订阅 MEDIUM 层。把该层限制为 360p/15fps，
+            // 即使远端无法硬解也不会再次形成无界解码积压。
+            isHarmony
+                ? _harmonyMediumVideoParameters
+                : VideoParametersPresets.h360_169,
           ],
         ),
       ),
@@ -214,6 +250,10 @@ class TgoRoomManager {
         // remote join
         TgoRTC.instance.participantManager
             .setParticipantJoin(event.participant);
+        _applyRemoteParticipantMediaPolicy(
+          event.participant,
+          trigger: 'participant-connected',
+        );
       })
       ..on<ParticipantDisconnectedEvent>((event) {
         // remote leave
@@ -241,6 +281,20 @@ class TgoRoomManager {
         if (event.publication.kind == TrackType.VIDEO) {
           _unsubscribeFromVideoStats();
         }
+      })
+      ..on<TrackPublishedEvent>((event) {
+        _applyRemoteVideoPolicy(
+          event.publication,
+          participantIdentity: event.participant.identity,
+          trigger: 'track-published',
+        );
+      })
+      ..on<TrackSubscribedEvent>((event) {
+        _applyRemoteVideoPolicy(
+          event.publication,
+          participantIdentity: event.participant.identity,
+          trigger: 'track-subscribed',
+        );
       });
     await room!.connect(
       roomInfo.url,
@@ -260,6 +314,61 @@ class TgoRoomManager {
     if (currentRoom == null) return;
     for (final participant in currentRoom.remoteParticipants.values) {
       TgoRTC.instance.participantManager.setParticipantJoin(participant);
+      _applyRemoteParticipantMediaPolicy(
+        participant,
+        trigger: 'room-reconcile',
+      );
+    }
+  }
+
+  void _applyRemoteParticipantMediaPolicy(
+    RemoteParticipant participant, {
+    required String trigger,
+  }) {
+    for (final publication in participant.videoTrackPublications) {
+      _applyRemoteVideoPolicy(
+        publication,
+        participantIdentity: participant.identity,
+        trigger: trigger,
+      );
+    }
+  }
+
+  void _applyRemoteVideoPolicy(
+    RemoteTrackPublication publication, {
+    required String participantIdentity,
+    required String trigger,
+  }) {
+    if (!lkPlatformIs(PlatformType.ohos) ||
+        publication.kind != TrackType.VIDEO) {
+      return;
+    }
+
+    unawaited(_configureHarmonyRemoteVideo(
+      publication,
+      participantIdentity: participantIdentity,
+      trigger: trigger,
+    ));
+  }
+
+  Future<void> _configureHarmonyRemoteVideo(
+    RemoteTrackPublication publication, {
+    required String participantIdentity,
+    required String trigger,
+  }) async {
+    try {
+      await publication.setVideoQuality(_harmonyRemoteVideoQuality);
+      // LiveKit 仅对支持时间分层的编码保证 FPS 筛选；对 H.264 simulcast
+      // 该值属于 best-effort，真正的 15fps 上限由发布端 MEDIUM 层保证。
+      await publication.setVideoFPS(_harmonyRemoteMaxFps);
+      Logger.info('[MediaPolicy] remote video configured '
+          'participant=$participantIdentity sid=${publication.sid} '
+          'quality=${_harmonyRemoteVideoQuality.name} '
+          'requestedFps=$_harmonyRemoteMaxFps trigger=$trigger');
+    } catch (error) {
+      Logger.error('[MediaPolicy] remote video configuration failed '
+          'participant=$participantIdentity sid=${publication.sid} '
+          'trigger=$trigger error=$error');
     }
   }
 

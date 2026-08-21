@@ -327,8 +327,10 @@ HarmonyOS 上 `setSpeakerphoneOn()` 直接调用 `flutter_webrtc` 的音频路�
 
 ### 4. 默认视频参数与首帧验收
 
-当前版本默认本地摄像头采集为 `1280×720 @ 30fps`，VP8 顶层最大码率为
-`1.7 Mbps`；simulcast 为 `180p / 360p / 720p`。此前的 4K 默认值在部分鸿蒙真机上会出现
+当前版本在 HarmonyOS 上默认本地摄像头采集为 `1280×720 @ 24fps`，使用原生硬件工厂支持的
+H.264 编码，顶层最大码率为 `1.7 Mbps`；simulcast 为 `180p / 360p / 720p`，其中默认订阅的
+360p 中层限制为 `15fps / 450kbps`。鸿蒙端会关闭 LiveKit 的 VP8 backup codec，防止主编码已经
+选择 H.264 后仍额外启动软件 VP8 编码。此前的 4K 默认值在部分鸿蒙真机上会出现
 `Camera VideoOutput` 启动返回成功但不产出视频帧的问题，因此不再作为默认配置。
 
 真机加入视频通话后，应在日志中同时确认：
@@ -370,7 +372,35 @@ VideoSendStream stats: ... input_fps: <大于 0> ... width: <非 0>, height: <�
 `front=0 + preview-fallback + cameraOrientation=90` 的组合附加 180° 校正；前置摄像头和
 `VideoOutput` 不受影响。命中时 `CameraTransform` 应显示 `backPreviewCorrection=1`。
 
-### 5. 前后摄像头切换验收
+### 5. 远端视频实时性策略与验收
+
+HarmonyOS 的原生硬件编解码工厂支持 H.264/H.265，不支持 VP8。旧策略固定发布 VP8，并默认订阅
+720p/30fps；部分真机只能使用软件 VP8 解码，解码速度持续低于网络收帧速度时，WebRTC 的
+`jitterBufferDelay` 会不断增长，最终表现为对方动作约 10 秒后才显示。
+
+当前 SDK 在 HarmonyOS 上采用以下策略：
+
+- 发布 H.264，并禁用 VP8 backup codec，确保进入鸿蒙硬件编解码路径。
+- 本地顶层限制为 720p/24fps，远端默认请求 MEDIUM（360p/15fps）层。
+- 每次远端发布、订阅、入房或重连后重新应用订阅策略。
+- 输出 `[MediaPolicy][RemoteStats]`，报告编码、解码器实现、帧率和统计区间内的平均排队时间。
+
+稳定通话至少一分钟后应确认：
+
+```text
+[MediaPolicy] platform=ohos publishCodec=h264 ... remoteQuality=medium remoteMaxFps=15
+[MediaPolicy] remote video configured ... quality=medium requestedFps=15 ...
+[MediaPolicy][RemoteStats] ... codec=video/H264 decoder=<鸿蒙硬件解码器> ... intervalQueueMs=<稳定且不持续增长>
+```
+
+如果 `codec=video/VP8` 或 `decoder=libvpx`，表示集成工程仍在使用旧 `flutter_assets`，需要同时替换
+`dist/flutter_assets` 和 `dist/flutter_assets_texture` 对应入口的完整目录。原生层另提供
+`native_patches/ohos_webrtc_receive_backpressure.patch` 作为过载保护：编码帧队列达到 15 帧时丢弃
+旧队列并请求关键帧，日志前缀为 `[OhosReceive][Backpressure]`。该保护只有在补丁应用到
+`ohos_webrtc`、重新生成 `libohos_webrtc.so` 并重建 `flutter_webrtc.har` 后才会生效；仅复制 patch
+文件不会改变运行行为。
+
+### 6. 前后摄像头切换验收
 
 HarmonyOS 的 `RTCRtpSender.id` 在部分版本中可能为空。旧版 `flutter_webrtc.har` 会把所有 sender 都映射为固定的
 `senderId`，切换摄像头时便无法找到对应的视频 sender，典型日志为：

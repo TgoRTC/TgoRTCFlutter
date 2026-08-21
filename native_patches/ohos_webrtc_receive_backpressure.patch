@@ -1,0 +1,118 @@
+diff --git a/video/video_stream_buffer_controller.h b/video/video_stream_buffer_controller.h
+--- a/video/video_stream_buffer_controller.h
++++ b/video/video_stream_buffer_controller.h
+@@ -35,3 +35,9 @@ class FrameSchedulingReceiver {
+   virtual void OnEncodedFrame(std::unique_ptr<EncodedFrame> frame) = 0;
+   virtual void OnDecodableFrameTimeout(TimeDelta wait_time) = 0;
++
++  // Called after the encoded-frame backlog is discarded. The receiver should
++  // request a fresh key frame so decoding can resume from current media time.
++  virtual void OnFrameBufferOverloaded(size_t buffered_frames) {
++    (void)buffered_frames;
++  }
+ };
+@@ -141,4 +147,6 @@ class VideoStreamBufferController {
+   FieldTrialParameter<unsigned> zero_playout_delay_max_decode_queue_size_;
++  bool waiting_for_overload_keyframe_
++      RTC_GUARDED_BY(&worker_sequence_checker_) = false;
+ 
+   ScopedTaskSafety worker_safety_;
+ };
+diff --git a/video/video_stream_buffer_controller.cc b/video/video_stream_buffer_controller.cc
+--- a/video/video_stream_buffer_controller.cc
++++ b/video/video_stream_buffer_controller.cc
+@@ -43,4 +43,9 @@ namespace {
+ // Max number of frames the buffer will hold.
+ static constexpr size_t kMaxFramesBuffered = 800;
++// A real-time call must prefer fresh video over decoding every old frame. At
++// 30 fps this allows roughly 500 ms of encoded backlog before recovery.
++// Normal network jitter is well below this limit; this guard is for a decoder
++// that is persistently slower than the incoming stream.
++static constexpr size_t kMaxRealtimeDecodeBacklogFrames = 15;
+ // Max number of decoded frame info that will be saved.
+ static constexpr int kMaxFramesHistory = 1 << 13;
+@@ -146,6 +151,8 @@ void VideoStreamBufferController::Clear() {
+   buffer_ = std::make_unique<FrameBuffer>(kMaxFramesBuffered, kMaxFramesHistory,
+                                           field_trials_);
+   frame_decode_scheduler_->CancelOutstanding();
++  frames_dropped_before_last_new_frame_ = 0;
++  waiting_for_overload_keyframe_ = false;
+ }
+ 
+ absl::optional<int64_t> VideoStreamBufferController::InsertFrame(
+@@ -153,5 +160,44 @@ absl::optional<int64_t> VideoStreamBufferController::InsertFrame(
+   RTC_DCHECK_RUN_ON(&worker_sequence_checker_);
+   FrameMetadata metadata(*frame);
++
++  if (waiting_for_overload_keyframe_) {
++    if (!metadata.is_keyframe) {
++      stats_proxy_->OnDroppedFrames(1);
++      return buffer_->LastContinuousFrameId();
++    }
++    RTC_LOG(LS_WARNING)
++        << "[OhosReceive][Backpressure] recovery keyframe received"
++        << " rtp_timestamp=" << metadata.rtp_timestamp;
++    waiting_for_overload_keyframe_ = false;
++  }
++
++  const size_t buffered_frames = buffer_->CurrentSize();
++  if (buffered_frames >= kMaxRealtimeDecodeBacklogFrames) {
++    if (metadata.is_keyframe) {
++      RTC_LOG(LS_WARNING)
++          << "[OhosReceive][Backpressure] fast-forwarding to keyframe"
++          << " buffered_frames=" << buffered_frames
++          << " rtp_timestamp=" << metadata.rtp_timestamp;
++      Clear();
++      keyframe_required_ = true;
++    } else {
++      RTC_LOG(LS_WARNING)
++          << "[OhosReceive][Backpressure] decode backlog exceeded"
++          << " buffered_frames=" << buffered_frames
++          << " limit=" << kMaxRealtimeDecodeBacklogFrames
++          << "; dropping backlog and requesting keyframe";
++      Clear();
++      // Clear() accounts for all frames already in the buffer. Account for
++      // the current delta frame as well and reject deltas until a key frame
++      // arrives, otherwise the decoder can never restart dependency-safely.
++      stats_proxy_->OnDroppedFrames(1);
++      waiting_for_overload_keyframe_ = true;
++      keyframe_required_ = true;
++      receiver_->OnFrameBufferOverloaded(buffered_frames);
++      return buffer_->LastContinuousFrameId();
++    }
++  }
++
+   int complete_units = buffer_->GetTotalNumberOfContinuousTemporalUnits();
+   if (buffer_->InsertFrame(std::move(frame))) {
+     RTC_DCHECK(metadata.receive_time) << "Frame receive time must be set!";
+diff --git a/video/video_receive_stream2.h b/video/video_receive_stream2.h
+--- a/video/video_receive_stream2.h
++++ b/video/video_receive_stream2.h
+@@ -204,5 +204,6 @@ class VideoReceiveStream2
+   void OnEncodedFrame(std::unique_ptr<EncodedFrame> frame) override;
+   // Called on packet sequence.
+   void OnDecodableFrameTimeout(TimeDelta wait) override;
++  void OnFrameBufferOverloaded(size_t buffered_frames) override;
+ 
+   void CreateAndRegisterExternalDecoder(const Decoder& decoder);
+diff --git a/video/video_receive_stream2.cc b/video/video_receive_stream2.cc
+--- a/video/video_receive_stream2.cc
++++ b/video/video_receive_stream2.cc
+@@ -831,6 +831,17 @@ void VideoReceiveStream2::OnDecodableFrameTimeout(TimeDelta wait) {
+   buffer_->StartNextDecode(keyframe_required_);
+ }
+ 
++void VideoReceiveStream2::OnFrameBufferOverloaded(size_t buffered_frames) {
++  RTC_DCHECK_RUN_ON(&packet_sequence_checker_);
++  const Timestamp now = clock_->CurrentTime();
++  RTC_LOG(LS_WARNING)
++      << "[OhosReceive][Backpressure] requesting recovery keyframe"
++      << " buffered_frames=" << buffered_frames
++      << " ssrc=" << remote_ssrc();
++  keyframe_required_ = true;
++  RequestKeyFrame(now);
++}
++
+ VideoReceiveStream2::DecodeFrameResult
+ VideoReceiveStream2::HandleEncodedFrameOnDecodeQueue(
+     std::unique_ptr<EncodedFrame> frame,

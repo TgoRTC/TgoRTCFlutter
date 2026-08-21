@@ -48,6 +48,8 @@ class TgoParticipant {
   final List<VideoInfoListener> _videoInfoListeners = [];
   VideoInfo _currentVideoInfo = VideoInfo.empty;
   EventsListener<TrackEvent>? _videoTrackListener;
+  num? _lastRemoteJitterBufferDelay;
+  num? _lastRemoteFramesDecoded;
 
   /// 获取当前视频信息
   VideoInfo get currentVideoInfo => _currentVideoInfo;
@@ -419,6 +421,34 @@ class TgoParticipant {
       final frameRate = stats.framesPerSecond?.toDouble() ?? 0.0;
       final bitrate = event.currentBitrate.toInt();
 
+      final currentJitterBufferDelay = stats.jitterBufferDelay;
+      final currentFramesDecoded = stats.framesDecoded;
+      num? intervalQueueDelayMs;
+      if (currentJitterBufferDelay != null &&
+          currentFramesDecoded != null &&
+          _lastRemoteJitterBufferDelay != null &&
+          _lastRemoteFramesDecoded != null) {
+        final decodedDelta = currentFramesDecoded - _lastRemoteFramesDecoded!;
+        final delayDelta =
+            currentJitterBufferDelay - _lastRemoteJitterBufferDelay!;
+        if (decodedDelta > 0 && delayDelta >= 0) {
+          // jitterBufferDelay 是所有已释放帧的累计秒数；相邻采样做差再
+          // 除以新增解码帧数，才是这一统计区间的平均排队时间。
+          intervalQueueDelayMs = delayDelta * 1000 / decodedDelta;
+        }
+      }
+      _lastRemoteJitterBufferDelay = currentJitterBufferDelay;
+      _lastRemoteFramesDecoded = currentFramesDecoded;
+
+      Logger.info('[MediaPolicy][RemoteStats] uid=$uid '
+          'codec=${stats.mimeType ?? 'unknown'} '
+          'decoder=${stats.decoderImplementation ?? 'unknown'} '
+          'size=${width}x$height fps=$frameRate bitrate=$bitrate '
+          'received=${stats.framesReceived ?? 0} '
+          'decoded=${stats.framesDecoded ?? 0} '
+          'dropped=${stats.framesDropped ?? 0} '
+          'intervalQueueMs=${intervalQueueDelayMs?.toStringAsFixed(1) ?? 'n/a'}');
+
       final info = VideoInfo(
         width: width,
         height: height,
@@ -435,6 +465,8 @@ class TgoParticipant {
     _videoTrackListener?.dispose();
     _videoTrackListener = null;
     _currentVideoInfo = VideoInfo.empty;
+    _lastRemoteJitterBufferDelay = null;
+    _lastRemoteFramesDecoded = null;
   }
 
   bool get isJoined => _localParticipant != null || _remoteParticipant != null;

@@ -425,3 +425,9 @@ TgoRTCFlutter.setEventListener({
    - 若日志出现 `[TgoCall] joinRoom: Bridge is NOT ready!`、`flutterEngine: null` 或 `TgoRTC.bridge is null! Please call TgoRTC.instance.setBridge() first.`，说明 **Flutter 桥接未初始化**。
    - 原因：未在 `EntryAbility.configureFlutterEngine` 中注册 TgoRTC 插件，导致 MethodChannel 未建立。
    - 解决：在 `configureFlutterEngine(flutterEngine)` 中增加 `flutterEngine.getPlugins()?.add(TgoRTCFlutter.getInstance())`（见 3.3 节）。
+
+7. **HarmonyOS 音视频实时性策略**：
+   - SDK 在 HarmonyOS 默认发布 H.264，关闭 VP8 backup codec，使用 720p/24fps 顶层和 360p/15fps 中层。
+   - 远端默认请求 MEDIUM 层，并在入房、发布、订阅和重连时重新应用该策略，避免软件 VP8 解码积压造成数秒延迟。
+   - 日志应出现 `[MediaPolicy] ... publishCodec=h264`，远端统计应显示 `codec=video/H264`，且 `intervalQueueMs` 不持续增长。
+   - Dart 策略升级需要完整替换对应入口的 `dist/flutter_assets` 或 `dist/flutter_assets_texture`。原生接收队列保护还需应用 `native_patches/ohos_webrtc_receive_backpressure.patch`，重新构建 `libohos_webrtc.so` 和 `flutter_webrtc.har` 后才会生效。
