@@ -431,6 +431,10 @@ SDK 的 `switchCamera()` 会等待 LiveKit 完成新摄像头创建、sender tra
 | `isCalling()` | 是否处于通话生命周期内 | - |
 | `isSpeakerOn()` | 获取扬声器状态 | - |
 
+`invite(roomName, uids)` 会先把本次实际接受的 UID 完整写入 SDK 状态，再通过
+`onParticipantsChanged` 发送一次去重后的完整快照。新邀请成员在首次快照中即存在且
+`isJoined=false`；已存在、与本机相同、同批重复或超过 `maxParticipants` 的 UID 不会重复进入快照。
+
 ### RoomInfo 接口
 
 ```typescript

@@ -163,11 +163,20 @@ class TgoParticipantManager {
       return;
     }
 
-    // 获取已存在的 uid 列表
-    var existingUids = _remoteParticipants.keys.toSet();
-
-    // 过滤掉已存在的 uid
-    var newUids = uids.where((uid) => !existingUids.contains(uid)).toList();
+    // 同时按缓存、uidList、本机 UID 和本批输入去重。把新 UID 加入
+    // existingUids 后再继续遍历，可以保持调用方传入顺序。
+    final existingUids = <String>{
+      ..._remoteParticipants.keys,
+      ...roomInfo.uidList,
+      roomInfo.loginUID,
+    };
+    final newUids = <String>[];
+    for (final uid in uids) {
+      if (uid.isEmpty || !existingUids.add(uid)) {
+        continue;
+      }
+      newUids.add(uid);
+    }
 
     if (newUids.isEmpty) {
       return;
@@ -185,15 +194,24 @@ class TgoParticipantManager {
     if (newUids.length > availableSlots) {
       Logger.error(
           '邀请人数超出限制，最多还能添加 $availableSlots 人，实际邀请 ${newUids.length} 人');
-      newUids = newUids.sublist(0, availableSlots);
+      newUids.removeRange(availableSlots, newUids.length);
     }
-    for (var uid in newUids) {
-      var tgoParticipant = TgoParticipant(uid, null, null);
+
+    // 先完整写入参与者缓存和 uidList，再发送任何通知。监听器会同步读取
+    // getAllParticipants()，因此通知时 uidList 必须已经是最终状态。
+    final newParticipants = <TgoParticipant>[];
+    final createdAt = DateTime.now();
+    for (final uid in newUids) {
+      final tgoParticipant = TgoParticipant(uid, null, null);
       _remoteParticipants[uid] = tgoParticipant;
-      _participantCreatedAt[uid] = DateTime.now();
-      _setNewParticipant(tgoParticipant);
+      _participantCreatedAt[uid] = createdAt;
+      newParticipants.add(tgoParticipant);
     }
     roomInfo.uidList.addAll(newUids);
+
+    for (final participant in newParticipants) {
+      _setNewParticipant(participant);
+    }
   }
 
   setParticipantJoin(RemoteParticipant participant) {

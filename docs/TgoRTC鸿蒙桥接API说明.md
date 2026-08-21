@@ -78,6 +78,10 @@ PreviewOutput，避免重复等待超时。该行为不需要调用方重新加�
 - **参数**:
   - `roomName` (string): 房间名。
   - `uids` (string[]): 邀请的 UID 列表。
+- SDK 会先完整更新参与者缓存和 `RoomInfo.uidList`，再异步发送一次去重后的
+  `onParticipantsChanged` 完整快照；首次快照即包含本次实际接受的 UID，状态为 `isJoined=false`。
+- 已存在 UID、当前登录 UID及同批重复 UID会被忽略；超过 `maxParticipants` 的部分不会进入
+  `uidList`、参与者缓存或事件快照。
 
 ### attachVideoSurface
 将指定成员的摄像头轨道绑定到 **已加载** 的 ArkTS `XComponent` Surface。
@@ -161,8 +165,9 @@ await TgoRTCFlutter.updateVideoSurface({
   - `reason` (string)
 
 ### onParticipantsChanged
-房间参与者列表发生变化。以下场景均会推送完整列表：本地加入、远端加入、远端离开及本地媒体状态变化。
+房间参与者列表发生变化。以下场景均会推送完整列表：本地加入、邀请成员、远端加入、远端离开及本地媒体状态变化。
 `uidList` 中的受邀成员会先以占位成员出现，只有 `isJoined` 为 `true` 才表示该成员已实际进入 LiveKit 房间。
+一次同步操作产生的多个成员变化会合并为一个微任务快照，避免连续发送内容相同的完整列表。
 - **Payload**:
   - `count` (number): 当前总人数。
   - `participants` (Participant[]): 完整的参与者列表。

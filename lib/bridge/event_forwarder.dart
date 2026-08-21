@@ -12,6 +12,7 @@ class TgoEventForwarder {
   static final Set<TgoParticipant> _remoteLeaveListeners = {};
   static final Set<TgoParticipant> _speakingListeners = {};
   static final Set<TgoParticipant> _videoTrackListeners = {};
+  static bool _participantsRefreshScheduled = false;
 
   /// Initializes the event forwarder.
   static void init(MethodChannel channel) {
@@ -55,7 +56,7 @@ class TgoEventForwarder {
       // newly connected LiveKit participant is forwarded by the joined
       // listener below, avoiding a duplicate full-list event.
       if (!participant.isJoined) {
-        _notifyParticipantsChanged();
+        _scheduleParticipantsChanged();
       }
     });
 
@@ -67,7 +68,7 @@ class TgoEventForwarder {
       _listenToJoinedRemoteParticipant(participant);
       // The transition may be discovered while a participant snapshot is
       // being built. Defer the next snapshot to prevent synchronous re-entry.
-      scheduleMicrotask(_notifyParticipantsChanged);
+      _scheduleParticipantsChanged();
     });
 
     TgoRTC.instance.audioManager.addDeviceChangeListener((_) {
@@ -109,7 +110,16 @@ class TgoEventForwarder {
       });
       // TgoParticipant notifies listeners before ParticipantManager removes
       // it from its cache. Queue the refresh so ArkTS receives the final list.
-      scheduleMicrotask(_notifyParticipantsChanged);
+      _scheduleParticipantsChanged();
+    });
+  }
+
+  static void _scheduleParticipantsChanged() {
+    if (_participantsRefreshScheduled) return;
+    _participantsRefreshScheduled = true;
+    scheduleMicrotask(() {
+      _participantsRefreshScheduled = false;
+      _notifyParticipantsChanged();
     });
   }
 
