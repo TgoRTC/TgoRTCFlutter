@@ -430,4 +430,4 @@ TgoRTCFlutter.setEventListener({
    - SDK 在 HarmonyOS 默认发布 H.264，关闭 VP8 backup codec，使用 720p/24fps 顶层和 360p/15fps 中层。
    - 远端默认请求 MEDIUM 层，并在入房、发布、订阅和重连时重新应用该策略，避免软件 VP8 解码积压造成数秒延迟。
    - 日志应出现 `[MediaPolicy] ... publishCodec=h264`，远端统计应显示 `codec=video/H264`，且 `intervalQueueMs` 不持续增长。
-   - Dart 策略升级需要完整替换对应入口的 `dist/flutter_assets` 或 `dist/flutter_assets_texture`。原生接收队列保护还需应用 `native_patches/ohos_webrtc_receive_backpressure.patch`，重新构建 `libohos_webrtc.so` 和 `flutter_webrtc.har` 后才会生效。
+   - Dart 策略升级需要完整替换对应入口的 `dist/flutter_assets` 或 `dist/flutter_assets_texture`。当前 `dist/flutter_webrtc.har` 已包含原生接收队列保护；自行构建源码时需应用 `native_patches/ohos_webrtc_receive_backpressure.patch`，再重新构建 `libohos_webrtc.so` 和 `flutter_webrtc.har`。

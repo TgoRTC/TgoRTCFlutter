@@ -1,6 +1,7 @@
 # Native patches
 
 该目录保存 `tgortcflutter` 仓库之外的 HarmonyOS 原生源码改动，构建不会自动应用这些文件。
+当前发布的 `dist/flutter_webrtc.har` 已包含下列补丁；本目录用于源码审查和后续从上游仓库重建。
 
 ## 目标仓库与应用顺序
 

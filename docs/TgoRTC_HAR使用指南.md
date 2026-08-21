@@ -349,7 +349,7 @@ VideoSendStream stats: ... input_fps: <大于 0> ... width: <非 0>, height: <�
 `width: 0`、`height: 0`、`SignalEncoderTimedOut`，故障位于鸿蒙摄像头采集到 WebRTC 的上行链路，
 不是 XComponent 未创建或本地 Surface 未绑定。
 
-当前 native 除了覆盖 VideoOutput 的 create/commit/start 接口明确失败，还会在 `active=video` 后启动
+当前 `dist/flutter_webrtc.har` 除了覆盖 VideoOutput 的 create/commit/start 接口明确失败，还会在 `active=video` 后启动
 800ms 首帧看门狗。超时仍没有 NativeImage/WebRTC 首帧时，它会停止旧会话、关闭并重建 `CameraInput`，然后自动
 切换到同尺寸 `PreviewOutput`。正常回退日志应完整包含：
 
@@ -396,9 +396,9 @@ HarmonyOS 的原生硬件编解码工厂支持 H.264/H.265，不支持 VP8。旧
 如果 `codec=video/VP8` 或 `decoder=libvpx`，表示集成工程仍在使用旧 `flutter_assets`，需要同时替换
 `dist/flutter_assets` 和 `dist/flutter_assets_texture` 对应入口的完整目录。原生层另提供
 `native_patches/ohos_webrtc_receive_backpressure.patch` 作为过载保护：编码帧队列达到 15 帧时丢弃
-旧队列并请求关键帧，日志前缀为 `[OhosReceive][Backpressure]`。该保护只有在补丁应用到
-`ohos_webrtc`、重新生成 `libohos_webrtc.so` 并重建 `flutter_webrtc.har` 后才会生效；仅复制 patch
-文件不会改变运行行为。
+旧队列并请求关键帧，日志前缀为 `[OhosReceive][Backpressure]`。当前 `dist/flutter_webrtc.har` 已包含
+该保护；自行从源码构建时仍须把补丁应用到 `ohos_webrtc`，重新生成 `libohos_webrtc.so` 并重建
+`flutter_webrtc.har`。仅复制 patch 文件不会改变运行行为。
 
 ### 6. 前后摄像头切换验收
 
