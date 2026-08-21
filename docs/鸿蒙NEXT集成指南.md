@@ -431,3 +431,8 @@ TgoRTCFlutter.setEventListener({
    - 远端默认请求 MEDIUM 层，并在入房、发布、订阅和重连时重新应用该策略，避免软件 VP8 解码积压造成数秒延迟。
    - 日志应出现 `[MediaPolicy] ... publishCodec=h264`，远端统计应显示 `codec=video/H264`，且 `intervalQueueMs` 不持续增长。
    - Dart 策略升级需要完整替换对应入口的 `dist/flutter_assets` 或 `dist/flutter_assets_texture`。当前 `dist/flutter_webrtc.har` 已包含原生接收队列保护；自行构建源码时需应用 `native_patches/ohos_webrtc_receive_backpressure.patch`，再重新构建 `libohos_webrtc.so` 和 `flutter_webrtc.har`。
+
+8. **锁屏/解锁后的本地视频恢复**：
+   - 当前 `flutter_webrtc.har` 监听 `onAbilityForeground`，对仍为 enabled/live 的本地视频 Track 强制重建 Camera Session、Input 和 Output，同时保留原 Track 与 RTP Sender。
+   - `SESSION_STARTED` 不代表恢复完成；日志出现 `[OhosCapture][ForegroundRecovery] FIRST_FRAME`，且 `input_fps`、发送宽高恢复为非零后才算成功。
+   - 同一 HAR 已修复 Stats report 返回空数组与逐字段 Info 日志刷屏。自行构建源码时需依次应用 `native_patches/flutter_webrtc_foreground_stats.patch` 和 `native_patches/ohos_webrtc_foreground_camera_recovery.patch`，重新生成 native `.so` 与 `flutter_webrtc.har`。

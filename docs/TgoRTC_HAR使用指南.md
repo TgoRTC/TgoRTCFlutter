@@ -372,6 +372,37 @@ VideoSendStream stats: ... input_fps: <大于 0> ... width: <非 0>, height: <�
 `front=0 + preview-fallback + cameraOrientation=90` 的组合附加 180° 校正；前置摄像头和
 `VideoOutput` 不受影响。命中时 `CameraTransform` 应显示 `backPreviewCorrection=1`。
 
+#### 锁屏/解锁后的本地摄像头恢复
+
+HarmonyOS 锁屏后，系统 Camera Session 可能已经失效，但旧 native 包仍保留 `isStarted=true`。解锁时普通
+`Start()` 会直接返回 `Capture session is started`，导致画面停在锁屏前最后一帧，且发送统计持续为
+`input_fps: 0`、`width: 0`、`height: 0`。
+
+当前 `flutter_webrtc.har` 已监听 `onAbilityForeground()`。应用确实经历过后台且本地视频 Track 仍为
+`enabled + live` 时，SDK 会保留原 Track/RTP Sender，转到采集线程强制释放旧 Session、CameraInput 和
+Output；即使旧 Session 的 `Stop()` 失败也继续清理，然后重新创建完整摄像头链路。正常日志顺序为：
+
+```text
+[ForegroundRecovery] app entered background
+onAbilityForeground
+[ForegroundRecovery] foreground camera restart requested tracks=1
+[OhosCapture][ForegroundRecovery] START ... wasStarted=1
+[OhosCapture][ForegroundRecovery] SESSION_STARTED awaitingFirstFrame=1 route=...
+[OhosCapture][ForegroundRecovery] FIRST_FRAME input=1280x720 route=...
+VideoSendStream stats: ... input_fps: <大于 0> ... width: <非 0>, height: <非 0>
+```
+
+`SESSION_STARTED` 只表示 Camera Session 启动调用成功；只有 `FIRST_FRAME` 才代表恢复成功。如果
+VideoOutput 仍未交付首帧，原有 800ms 看门狗会继续切到 PreviewOutput。出现
+`FAILED stage=start_session`、`first_frame_timeout` 或 `preview_fallback` 时，应保留完整日志继续定位。
+
+同一版本还修复了 Stats 桥接：每个 report 会通过 `stats.pushMap(report_map)` 加入返回数组；逐字段
+`reports.forEach` Info 日志已删除，只保留 Debug 级 `handleStatsReport reportCount=<n>` 摘要。因此 Dart
+统计调用仍可能按固定周期执行，但不会再因桥接层为每个字段打印 Info 日志而产生数千行刷屏。
+
+上述前台恢复和 Stats 修复都位于 `flutter_webrtc` 的 ArkTS/native 层。本次从上一发布包升级只需替换
+`dist/flutter_webrtc.har`；没有因这两项修复修改 Dart 快照、`flutter.har` 或 `tgortc-*.har`。
+
 ### 5. 远端视频实时性策略与验收
 
 HarmonyOS 的原生硬件编解码工厂支持 H.264/H.265，不支持 VP8。旧策略固定发布 VP8，并默认订阅

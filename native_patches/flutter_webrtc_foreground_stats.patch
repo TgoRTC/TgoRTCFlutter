@@ -1,0 +1,188 @@
+diff --git a/ohos/src/main/ets/LifeCycleObserver.ets b/ohos/src/main/ets/LifeCycleObserver.ets
+index cae8715..d037ce4 100644
+--- a/ohos/src/main/ets/LifeCycleObserver.ets
++++ b/ohos/src/main/ets/LifeCycleObserver.ets
+@@ -56,5 +56,11 @@ export default class LifeCycleObserver extends AbilityLifecycleCallback {
+
+   onAbilityBackground(ability: UIAbility) {
+     Log.d(TAG, 'onAbilityBackground')
++    this.methodCallHandler?.onAbilityBackground();
+   }
+-}
+\ No newline at end of file
++
++  onAbilityForeground(ability: UIAbility) {
++    Log.d(TAG, 'onAbilityForeground')
++    this.methodCallHandler?.onAbilityForeground();
++  }
++}
+diff --git a/ohos/src/main/ets/MethodCallHandlerImpl.ets b/ohos/src/main/ets/MethodCallHandlerImpl.ets
+index 7177861..d663171 100644
+--- a/ohos/src/main/ets/MethodCallHandlerImpl.ets
++++ b/ohos/src/main/ets/MethodCallHandlerImpl.ets
+@@ -137,6 +137,7 @@ export default class MethodCallHandlerImpl implements MethodCallHandler, StatePr
+   // private videoEncoderFactory: CustomVideoEncoderFactory | null = null;
+   private mTextureId: number = 0;
+   private entry: SurfaceTextureEntry | null = null;
++  private appWasBackgrounded: boolean = false;
+
+   constructor(context: Context, messenger: BinaryMessenger, textureRegistry: TextureRegistry) {
+     this.context = context;
+@@ -177,6 +178,7 @@ export default class MethodCallHandlerImpl implements MethodCallHandler, StatePr
+     'createVideoRenderer': (call, result) => this.createVideoRenderer(call, result),
+     'videoRendererDispose': (call, result) => this.videoRendererDispose(call, result),
+     'videoRendererSetSrcObject': (call, result) => this.videoRendererSetSrcObject(call, result),
++    'videoRendererUpdateExternalSurface': (call, result) => this.videoRendererUpdateExternalSurface(call, result),
+     'mediaStreamTrackHasTorch': (call, result) => this.mediaStreamTrackHasTorch(call, result),
+     'mediaStreamTrackSetTorch': (call, result) => this.mediaStreamTrackSetTorch(call, result),
+     'mediaStreamTrackSetZoom': (call, result) => this.mediaStreamTrackSetZoom(call, result),
+@@ -237,6 +239,33 @@ export default class MethodCallHandlerImpl implements MethodCallHandler, StatePr
+     this.mPCO.clear();
+   }
+
++  onAbilityBackground(): void {
++    this.appWasBackgrounded = true;
++    Log.d(TAG, '[ForegroundRecovery] app entered background');
++  }
++
++  onAbilityForeground(): void {
++    if (!this.appWasBackgrounded) {
++      Log.d(TAG, '[ForegroundRecovery] foreground callback without a preceding background; skip');
++      return;
++    }
++    this.appWasBackgrounded = false;
++
++    let requested: number = 0;
++    for (let track of this.localTracks.values()) {
++      if (track.kind !== 'video' || !track.enabled || track.readyState !== 'live') {
++        continue;
++      }
++      try {
++        track.restartCapture();
++        requested++;
++      } catch (error) {
++        Log.e(TAG, `[ForegroundRecovery] restartCapture failed trackId=${track.id}, error=${JSON.stringify(error)}`);
++      }
++    }
++    Log.i(TAG, `[ForegroundRecovery] foreground camera restart requested tracks=${requested}`);
++  }
++
+   onMethodCall(call: MethodCall, result: MethodResult): void {
+     let method: string = call.method;
+     try {
+@@ -688,9 +717,12 @@ export default class MethodCallHandlerImpl implements MethodCallHandler, StatePr
+   }
+
+   createVideoRenderer(call: MethodCall, result: MethodResult): void {
+-    let textureId = this.textures.getTextureId();
++    // Flutter's built-in ImageReceiver is BGRA_8888 (format 4). The native
++    // raster writer is configured to output the same BGRA format.
++    const textureEntry: SurfaceTextureEntry = this.textures.createSurfaceTexture();
++    const textureId: number = textureEntry.getTextureId();
+     let render: FlutterRTCVideoRenderer =
+-      new FlutterRTCVideoRenderer(textureId, this.stateProvider);
++      new FlutterRTCVideoRenderer(textureId, this.stateProvider, textureEntry);
+     Log.d(TAG, 'createVideoRenderer create FlutterRTCVideoRenderer !')
+     this.renders.add(textureId, render);
+     let eventChannel: EventChannel =
+@@ -735,12 +767,13 @@ export default class MethodCallHandlerImpl implements MethodCallHandler, StatePr
+       this.resultError('videoRendererSetSrcObject', `videoRender [${textureId}] not found !`, result);
+       return;
+     }
+-    if (!surfaceId) {
+-      this.resultError('videoRendererSetSrcObject', `videoRender surfaceId not found !`, result);
+-      return;
+-    }
++    // A non-empty id selects the ArkTS XComponent route. The Flutter Texture
++    // fallback is initialized lazily only when no external Surface is given,
++    // preventing its async ImageReceiver callback from replacing XComponent.
+     if (surfaceId != '' && videoRender.getSurfaceId() != surfaceId) {
+       videoRender.init(surfaceId);
++    } else if (surfaceId == '') {
++      videoRender.initializeFlutterTextureSurface();
+     }
+     let stream: MediaStream;
+     if (ownerTag === 'local') {
+@@ -753,6 +786,23 @@ export default class MethodCallHandlerImpl implements MethodCallHandler, StatePr
+     } else {
+       videoRender.setStream(stream, ownerTag);
+     }
++    // setStream 会把 VideoTrack 加到 NativeVideoRenderer；必须在这之后重设
++    // 缩放模式，否则底层会以默认 AspectFit 绘制，产生黑边。
++    videoRender.updateExternalSurface(call.argument('mirror') ?? false,
++      call.argument('fit') ?? 'cover');
++    result.success(null);
++  }
++
++  videoRendererUpdateExternalSurface(call: MethodCall, result: MethodResult): void {
++    const textureId: number = call.argument('textureId');
++    const videoRender: FlutterRTCVideoRenderer = this.renders.get(textureId);
++    if (!videoRender) {
++      this.resultError('videoRendererUpdateExternalSurface',
++        `videoRender [${textureId}] not found !`, result);
++      return;
++    }
++    videoRender.updateExternalSurface(call.argument('mirror') ?? false,
++      call.argument('fit') ?? 'cover');
+     result.success(null);
+   }
+
+@@ -1659,4 +1709,4 @@ export default class MethodCallHandlerImpl implements MethodCallHandler, StatePr
+       Log.w(TAG, 'setVolume(): track not found: ' + id);
+     }
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/ohos/src/main/ets/PeerConnectionObserver.ets b/ohos/src/main/ets/PeerConnectionObserver.ets
+index cf68c77..7e92c7f 100644
+--- a/ohos/src/main/ets/PeerConnectionObserver.ets
++++ b/ohos/src/main/ets/PeerConnectionObserver.ets
+@@ -536,13 +536,13 @@ export default class PeerConnectionObserver implements StreamHandler {
+       report_map.set('timestamp', v.timestamp)
+       let v_map: DataMap = new Map();
+       Object.keys(v).forEach((value, key) => {
+-        Log.i(TAG, 'reports.forEach :  ' + JSON.stringify(value))
+         v_map.set(value, v[value]);
+       })
+       report_map.set('values', v_map);
++      stats.pushMap(report_map);
+     })
+     params.putArray('stats', stats.toArrayList());
+-    Log.i(TAG, 'handleStatsReport stats = ' + Array.from(params.toMap().entries()))
++    Log.d(TAG, `handleStatsReport reportCount=${stats.size()}`)
+     result.success(params.toMap());
+   }
+
+@@ -747,4 +747,4 @@ export default class PeerConnectionObserver implements StreamHandler {
+     result.success(null);
+     Log.d(TAG, 'rtpTransceiverSetCodecPreferences success! ');
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/ohos/src/main/libohos_webrtc/webrtc.d.ts b/ohos/src/main/libohos_webrtc/webrtc.d.ts
+index e1169df..2d9fc0c 100644
+--- a/ohos/src/main/libohos_webrtc/webrtc.d.ts
++++ b/ohos/src/main/libohos_webrtc/webrtc.d.ts
+@@ -782,6 +782,8 @@ export interface MediaStreamTrack extends EventTarget {
+   readonly readyState: MediaStreamTrackState;
+
+   stop(): void;
++  /** Rebuilds an invalid HarmonyOS camera pipeline without replacing this track. */
++  restartCapture(): void;
+ }
+
+ export declare var MediaStreamTrack: {
+@@ -845,6 +847,11 @@ export interface NativeVideoRenderer {
+   readonly videoTrack?: MediaStreamTrack;
+
+   init(surfaceId: string): void;
++  /**
++   * Binds a Flutter TextureRegistry surface. This deliberately uses the
++   * native RGBA buffer path instead of the XComponent/WebRTC EGL path.
++   */
++  initFlutterTexture(surfaceId: string): void;
+   setVideoTrack(videoTrack: MediaStreamTrack | null): void;
+   setMirror(mirrorHorizontally: boolean): void;
+   setMirrorVertically(mirrorVertically: boolean): void;

@@ -1,0 +1,288 @@
+diff --git a/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp b/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
+index 7d668741f2..8b4d982db3 100644
+--- a/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
++++ b/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.cpp
+@@ -133,12 +133,67 @@ void CameraCapturer::Stop()
+     StopInternal();
+ }
+
+-bool CameraCapturer::IsScreencast()
+-{
+-    return false;
+-}
+-
+-void CameraCapturer::SwitchCamera()
++bool CameraCapturer::IsScreencast()
++{
++    return false;
++}
++
++void CameraCapturer::RestartCapture()
++{
++    if (isRecovering_.exchange(true, std::memory_order_acq_rel)) {
++        RTC_LOG(LS_WARNING) << "[OhosCapture][ForegroundRecovery] recovery already in progress";
++        return;
++    }
++
++    RTC_LOG(LS_INFO) << "[OhosCapture][ForegroundRecovery] START this=" << this
++                     << " wasStarted=" << isStarted_;
++
++    CancelFirstFrameWatchdog();
++    isRuntimeFallback_.store(false, std::memory_order_release);
++    isSwitching_.store(false, std::memory_order_release);
++
++    // After the ability has returned to foreground, HarmonyOS can leave the
++    // wrapper in a nominally started state while the system CameraSession is
++    // already invalid. Stop is therefore best-effort: recovery must release
++    // every stale handle even when Stop() reports an error.
++    if (!captureSession_.IsEmpty() && !captureSession_.Stop()) {
++        RTC_LOG(LS_WARNING) << "[OhosCapture][ForegroundRecovery] stale session Stop failed; "
++                               "continuing forced teardown";
++    }
++    captureSession_.Reset();
++    ResetCaptureOutputs();
++
++    if (!input_.IsEmpty()) {
++        if (!input_.Close()) {
++            RTC_LOG(LS_WARNING) << "[OhosCapture][ForegroundRecovery] stale CameraInput Close failed; "
++                                   "continuing forced teardown";
++        }
++        input_.Reset();
++    }
++
++    cameraDevices_.Reset();
++    ohos::DisplayManager::GetInstance().UnregisterChangeCallback(this);
++    firstFrameReceived_.store(false, std::memory_order_release);
++    usingVideoOutput_.store(false, std::memory_order_release);
++    isStarted_ = false;
++
++    // Do not call NotifyCapturedStop(): the existing MediaStreamTrack and RTP
++    // sender must stay live while only the camera pipeline is rebuilt.
++    awaitingRecoveryFirstFrame_.store(true, std::memory_order_release);
++    StartInternal();
++    if (isStarted_) {
++        RTC_LOG(LS_INFO) << "[OhosCapture][ForegroundRecovery] SESSION_STARTED awaitingFirstFrame="
++                         << awaitingRecoveryFirstFrame_.load(std::memory_order_acquire)
++                         << " route="
++                         << (usingVideoOutput_.load(std::memory_order_acquire) ? "video" : "preview");
++    } else {
++        awaitingRecoveryFirstFrame_.store(false, std::memory_order_release);
++        RTC_LOG(LS_ERROR) << "[OhosCapture][ForegroundRecovery] FAILED stage=start_session";
++    }
++    isRecovering_.store(false, std::memory_order_release);
++}
++
++void CameraCapturer::SwitchCamera()
+ {
+     RTC_LOG(LS_INFO) << __FUNCTION__;
+
+@@ -530,6 +585,9 @@ void CameraCapturer::HandleFirstFrameTimeout()
+         // Preserve StopInternal's safety rule: if the camera service refused
+         // to stop the running session, do not release its input/output under it.
+         RTC_LOG(LS_ERROR) << "[OhosCapture][FirstFrame] keeping current session because stop did not complete";
++        if (awaitingRecoveryFirstFrame_.exchange(false, std::memory_order_acq_rel)) {
++            RTC_LOG(LS_ERROR) << "[OhosCapture][ForegroundRecovery] FAILED stage=first_frame_timeout";
++        }
+         return;
+     }
+     CleanupAfterFallbackFailure();
+@@ -580,6 +638,9 @@ bool CameraCapturer::SwitchToPreviewOutputAfterFirstFrameTimeout()
+
+ void CameraCapturer::CleanupAfterFallbackFailure()
+ {
++    if (awaitingRecoveryFirstFrame_.exchange(false, std::memory_order_acq_rel)) {
++        RTC_LOG(LS_ERROR) << "[OhosCapture][ForegroundRecovery] FAILED stage=preview_fallback";
++    }
+     captureSession_.Reset();
+     ResetCaptureOutputs();
+     usingVideoOutput_.store(false, std::memory_order_release);
+@@ -713,6 +774,7 @@ void CameraCapturer::StopInternal()
+     RTC_LOG(LS_VERBOSE) << __FUNCTION__;
+
+     CancelFirstFrameWatchdog();
++    awaitingRecoveryFirstFrame_.store(false, std::memory_order_release);
+     isRuntimeFallback_.store(false, std::memory_order_release);
+
+     if (!isStarted_) {
+@@ -838,6 +900,12 @@ void CameraCapturer::OnFrameAvailable(
+     RTC_DLOG(LS_VERBOSE) << __FUNCTION__;
+
+     const bool isFirstFrame = !firstFrameReceived_.exchange(true, std::memory_order_acq_rel);
++    if (awaitingRecoveryFirstFrame_.exchange(false, std::memory_order_acq_rel)) {
++        RTC_LOG(LS_INFO) << "[OhosCapture][ForegroundRecovery] FIRST_FRAME input="
++                         << buffer->width() << "x" << buffer->height()
++                         << " route="
++                         << (usingVideoOutput_.load(std::memory_order_acquire) ? "video" : "preview-fallback");
++    }
+     if (isFirstFrame) {
+         if (!usingVideoOutput_.load(std::memory_order_acquire)) {
+             isRuntimeFallback_.store(false, std::memory_order_release);
+diff --git a/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.h b/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.h
+index a9aab2fea0..bfaaf7834a 100644
+--- a/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.h
++++ b/sdk/ohos/src/ohos_webrtc/camera/camera_capturer.h
+@@ -53,6 +53,7 @@ public:
+     void Start() override;
+     void Stop() override;
+     bool IsScreencast() override;
++    void RestartCapture() override;
+     void SwitchCamera() override;
+     void SwitchCamera(const std::string& cameraId) override;
+
+@@ -105,6 +106,12 @@ private:
+     bool isStarted_{false};
+     // 摄像头切换进行中标记(防重入; 切换期间屏蔽 NotifyCapturedStop)。
+     std::atomic<bool> isSwitching_{false};
++    // Foreground recovery may be requested more than once by the ability
++    // lifecycle. Serialize it on the capturer thread and reject re-entry.
++    std::atomic<bool> isRecovering_{false};
++    // Set after a foreground rebuild until an actual frame reaches WebRTC.
++    // Session Start() success alone is not considered recovery success.
++    std::atomic<bool> awaitingRecoveryFirstFrame_{false};
+     // VideoOutput 首帧超时回退期间，忽略旧 output 的 FrameEnd 停止通知。
+     std::atomic<bool> isRuntimeFallback_{false};
+     std::atomic<bool> firstFrameReceived_{false};
+diff --git a/sdk/ohos/src/ohos_webrtc/media_stream_track.cpp b/sdk/ohos/src/ohos_webrtc/media_stream_track.cpp
+index 75c155a577..2a2da62969 100644
+--- a/sdk/ohos/src/ohos_webrtc/media_stream_track.cpp
++++ b/sdk/ohos/src/ohos_webrtc/media_stream_track.cpp
+@@ -43,6 +43,7 @@ const char kAttributeNameOnUnmute[] = "onunmute";
+ const char kAttributeNameOnEnded[] = "onended";
+
+ const char kMethodNameStop[] = "stop";
++const char kMethodNameRestartCapture[] = "restartCapture";
+ const char kMethodNameGetSource[] = "getSource";
+ const char kMethodNameToJson[] = "toJSON";
+ const char kMethodNameApplyConstraints[] = "applyConstraints";
+@@ -66,6 +67,7 @@ void NapiMediaStreamTrack::Init(Napi::Env env, Object exports)
+                 kAttributeNameEnabled),
+             InstanceAccessor<&NapiMediaStreamTrack::GetReadyState>(kAttributeNameReadyState),
+             InstanceMethod<&NapiMediaStreamTrack::Stop>(kMethodNameStop),
++            InstanceMethod<&NapiMediaStreamTrack::RestartCapture>(kMethodNameRestartCapture),
+             InstanceMethod<&NapiMediaStreamTrack::GetSource>(kMethodNameGetSource),
+             InstanceMethod<&NapiMediaStreamTrack::ApplyConstraints>(kMethodNameApplyConstraints),
+             InstanceMethod<&NapiMediaStreamTrack::GetZoomRange>(kMethodNameGetZoomRange),
+@@ -375,6 +377,28 @@ Napi::Value NapiMediaStreamTrack::GetSource(const Napi::CallbackInfo& info)
+     return info.Env().Null();
+ }
+
++Napi::Value NapiMediaStreamTrack::RestartCapture(const Napi::CallbackInfo& info)
++{
++    if (!track_ || !IsVideoTrack()) {
++        NAPI_THROW(Error::New(info.Env(), "restartCapture requires a video track"), info.Env().Undefined());
++    }
++
++    if (!track_->enabled() || track_->state() != MediaStreamTrackInterface::kLive) {
++        RTC_LOG(LS_INFO) << "[OhosCapture][ForegroundRecovery] skip disabled or ended track id="
++                         << track_->id();
++        return info.Env().Undefined();
++    }
++
++    auto source = factory_->GetVideoSource(track_);
++    if (!source) {
++        NAPI_THROW(Error::New(info.Env(), "video source not found"), info.Env().Undefined());
++    }
++
++    RTC_LOG(LS_INFO) << "[OhosCapture][ForegroundRecovery] restart requested trackId=" << track_->id();
++    source->RestartCapture();
++    return info.Env().Undefined();
++}
++
+ bool NapiMediaStreamTrack::ReadLongConstraint(const LongConstraint& constraint, const ConstraintReadContext& ctx,
+     int32_t& outValue, bool& outHasValue)
+ {
+diff --git a/sdk/ohos/src/ohos_webrtc/media_stream_track.h b/sdk/ohos/src/ohos_webrtc/media_stream_track.h
+index 12beaf73e2..53cf94ce0b 100644
+--- a/sdk/ohos/src/ohos_webrtc/media_stream_track.h
++++ b/sdk/ohos/src/ohos_webrtc/media_stream_track.h
+@@ -75,6 +75,7 @@ protected:
+     void SetEnabled(const Napi::CallbackInfo& info, const Napi::Value& value);
+     Napi::Value GetReadyState(const Napi::CallbackInfo& info);
+     Napi::Value Stop(const Napi::CallbackInfo& info);
++    Napi::Value RestartCapture(const Napi::CallbackInfo& info);
+     Napi::Value GetSource(const Napi::CallbackInfo& info);
+     Napi::Value ApplyConstraints(const Napi::CallbackInfo& info);
+     Napi::Value GetZoomRange(const Napi::CallbackInfo& info);
+diff --git a/sdk/ohos/src/ohos_webrtc/video/video_capturer.h b/sdk/ohos/src/ohos_webrtc/video/video_capturer.h
+index fe071e5d70..222c108bb7 100644
+--- a/sdk/ohos/src/ohos_webrtc/video/video_capturer.h
++++ b/sdk/ohos/src/ohos_webrtc/video/video_capturer.h
+@@ -50,6 +50,11 @@ public:
+     virtual void Stop() = 0;
+     virtual bool IsScreencast() = 0;
+
++    // Rebuild an invalidated capture pipeline without ending the MediaStreamTrack.
++    // Camera capturers override this for foreground recovery; other capturers
++    // intentionally keep the default no-op behavior.
++    virtual void RestartCapture() {}
++
+     // Camera zoom. Default no-op; non-camera capturers (e.g. ScreenCapturer) need not override.
+     virtual void SetZoomRatio(double ratio) { (void)ratio; }
+     virtual bool GetZoomRatioRange(float* minZoom, float* maxZoom)
+diff --git a/sdk/ohos/src/ohos_webrtc/video/video_track_source.cpp b/sdk/ohos/src/ohos_webrtc/video/video_track_source.cpp
+index 8e6ac60f4d..3ff83652d7 100644
+--- a/sdk/ohos/src/ohos_webrtc/video/video_track_source.cpp
++++ b/sdk/ohos/src/ohos_webrtc/video/video_track_source.cpp
+@@ -125,6 +125,21 @@ void OhosVideoTrackSource::Stop()
+     thread_->PostTask([capturer = capturer_] { capturer->Stop(); });
+ }
+
++void OhosVideoTrackSource::RestartCapture()
++{
++    if (is_destroying_.load(std::memory_order_acquire)) {
++        RTC_LOG(LS_WARNING) << "[OhosCapture][ForegroundRecovery] source destroying, skip";
++        return;
++    }
++
++    RTC_LOG(LS_INFO) << "[OhosCapture][ForegroundRecovery] queued on capture thread";
++    thread_->PostTask([capturer = capturer_] {
++        if (capturer) {
++            capturer->RestartCapture();
++        }
++    });
++}
++
+ void OhosVideoTrackSource::SetCapturerObserver(VideoCapturer::Observer* observer)
+ {
+     UNUSED std::lock_guard<std::mutex> lock(obsMutex_);
+@@ -519,6 +534,20 @@ void OhosVideoTrackSource::OnFrameCaptured(
+             &crop_y, &crop_x);
+     }
+
++    ++sourceFrameCount_;
++    if (sourceFrameCount_ <= 3 || sourceFrameCount_ % 30 == 0) {
++        const int logicalWidth = rotation % kVideoRotation_180 == 0 ? buffer->width() : buffer->height();
++        const int logicalHeight = rotation % kVideoRotation_180 == 0 ? buffer->height() : buffer->width();
++        RTC_LOG(LS_INFO) << "[OhosCapture][SourceAdapt] frame=" << sourceFrameCount_
++                          << " input=" << buffer->width() << "x" << buffer->height()
++                          << " rotation=" << rotation
++                          << " logical=" << logicalWidth << "x" << logicalHeight
++                          << " crop=" << crop_x << "," << crop_y << "+" << crop_width << "x" << crop_height
++                          << " output=" << adapted_width << "x" << adapted_height
++                          << " bufferType=" << static_cast<int>(buffer->type())
++                          << " drop=" << drop;
++    }
++
+     RTC_DLOG(LS_VERBOSE) << "adapted_width=" << adapted_width << ", adapted_height=" << adapted_height
+                          << ", crop_width=" << crop_width << ", crop_height=" << crop_height << ", crop_x=" << crop_x
+                          << ", crop_y=" << crop_y;
+diff --git a/sdk/ohos/src/ohos_webrtc/video/video_track_source.h b/sdk/ohos/src/ohos_webrtc/video/video_track_source.h
+index 044b3c92a8..b9c3685481 100644
+--- a/sdk/ohos/src/ohos_webrtc/video/video_track_source.h
++++ b/sdk/ohos/src/ohos_webrtc/video/video_track_source.h
+@@ -42,6 +42,7 @@ public:
+
+     void Start();
+     void Stop();
++    void RestartCapture();
+
+     // 切换摄像头: 投递到 capturer 线程执行, 保证 StopInternal/StartInternal 不与运行中的采集竞态。
+     void SwitchCamera();
+@@ -131,6 +132,7 @@ private:
+     std::mutex obsMutex_;
+     VideoCapturer::Observer* capturerObserver_{};
+     rtc::TimestampAligner timestampAligner_;
++    uint64_t sourceFrameCount_{0};
+ };
+
+ } // namespace webrtc
