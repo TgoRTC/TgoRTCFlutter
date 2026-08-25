@@ -444,15 +444,18 @@ id : senderId
 rtpSenderSetTrack(): sender is null
 ```
 
-此时旧摄像头已释放，而新摄像头只执行到 `CameraCapturer Init`，不会继续 `Start`，表现为本地画面卡死、
-`input_fps: 0`。当前 `flutter_webrtc.har` 使用原始 track ID 作为稳定的 sender fallback ID，并在
-PeerConnection 生命周期内缓存该映射，确保连续多次前后切换仍能找到同一个视频 sender。
+此时旧发送源已被置空。新摄像头可能仍会正常 `Start`、产出首帧并绑定本地 Surface，因此本地预览可以继续活动；
+但新 Track 没有进入原 RTP Sender，对端会停在旧 Track 的最后一帧，随后本机出现
+`SignalEncoderTimedOut`。当前 `flutter_webrtc.har` 使用原始 track ID 作为稳定的 sender fallback ID，并在
+PeerConnection 生命周期内缓存 Sender 对象，确保连续多次前后切换仍能找到同一个视频 Sender。
 
 切换成功应至少确认：
 
 ```text
 onMethodCall: rtpSenderReplaceTrack
-getRtpSenderById cache hit: <原视频 trackId>
+[SenderIdentity] cache hit key=<原视频 trackId>
+[SenderIdentity] replace START key=<原视频 trackId> oldTrack=<原 trackId> newTrack=<新 trackId>
+[SenderIdentity] replace SUCCESS key=<原视频 trackId> oldTrack=<原 trackId> newTrack=<新 trackId>
 [VideoSurface] rebind surface=<原 surfaceId> ... oldTrack=<原 trackId> newTrack=<新 trackId>
 [OhosRemoteRender][SinkAttach] surfaceId=<原 surfaceId> trackId=<新 trackId>
 CameraCapturer ... Init
@@ -461,6 +464,10 @@ CameraCapturer ... Start
 [VideoSurface] first frame surface=<原 surfaceId> track=<新 trackId>
 VideoSendStream stats: ... input_fps: <大于 0> ... width: <非 0>, height: <非 0>
 ```
+
+必须同时看到 `replace SUCCESS` 和新 Track 的首帧。本地出现 `SourceAdapt frame=...`、`SinkAttach` 或
+`XComponentVideo Present` 只证明预览链路正常，不能证明新 Track 已进入编码发送链路。出现
+`rtpSenderSetTrack(): sender is null` 时，即使上层随后打印 `switchCamera SUCCESS`，也应判定切换失败。
 
 SDK 的 `switchCamera()` 会等待 LiveKit 完成新摄像头创建、sender track 替换及启动，并保留约 300ms
 的稳定窗口；切换期间的重复调用会合并。LiveKit 切换时会保留 `LocalVideoTrack` 对象，但替换它内部的

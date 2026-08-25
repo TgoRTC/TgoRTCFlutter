@@ -1,35 +1,5 @@
-diff --git a/ohos/src/main/ets/utils/PCOUtils.ets b/ohos/src/main/ets/utils/PCOUtils.ets
---- a/ohos/src/main/ets/utils/PCOUtils.ets
-+++ b/ohos/src/main/ets/utils/PCOUtils.ets
-@@ -53,12 +53,13 @@ export function candidateToMap(candidate?: RTCIceCandidate): DataMap {
-   return params;
- }
- 
--export function transceiverToMap(transceiverId: string, transceiver: RTCRtpTransceiver): DataMap {
-+export function transceiverToMap(transceiverId: string, transceiver: RTCRtpTransceiver,
-+  senderId?: string): DataMap {
-   let params: DataMap = new Map();
-   params.set('transceiverId', transceiverId);
-   params.set('mid', transceiver.mid ?? '');
-   params.set('direction', transceiver.direction);
--  params.set('sender', rtpSenderToMap(transceiver.sender));
-+  params.set('sender', rtpSenderToMap(transceiver.sender, senderId));
-   params.set('receiver', rtpReceiverToMap(transceiver.receiver));
-   return params;
- }
-@@ -122,9 +123,9 @@ export function rtpParametersToMap(rtpParameters: RTCRtpSendParameters): DataMap
-   return info.toMap();
- }
- 
--export function rtpSenderToMap(sender: RTCRtpSender): DataMap {
-+export function rtpSenderToMap(sender: RTCRtpSender, cachedSenderId?: string): DataMap {
-   let params: DataMap = new Map();
--  params.set('senderId', sender.id ?? 'senderId');
-+  params.set('senderId', cachedSenderId ?? sender.id ?? sender.track?.id ?? 'senderId');
-   params.set('ownsTrack', true);
-   params.set('dtmfSender', dtmfSenderToMap(sender.dtmf, sender.id));
-   params.set('rtpParameters', rtpParametersToMap(sender.getParameters()));
 diff --git a/ohos/src/main/ets/PeerConnectionObserver.ets b/ohos/src/main/ets/PeerConnectionObserver.ets
+index 7e92c7f..f229244 100644
 --- a/ohos/src/main/ets/PeerConnectionObserver.ets
 +++ b/ohos/src/main/ets/PeerConnectionObserver.ets
 @@ -70,6 +70,7 @@ export default class PeerConnectionObserver implements StreamHandler {
@@ -46,76 +16,135 @@ diff --git a/ohos/src/main/ets/PeerConnectionObserver.ets b/ohos/src/main/ets/Pe
      this.dataChannels.clear();
 +    this.rtpSenders.clear();
    }
- 
+
    dispose() {
-@@ -324,18 +326,30 @@ export default class PeerConnectionObserver implements StreamHandler {
+@@ -324,18 +326,33 @@ export default class PeerConnectionObserver implements StreamHandler {
    }
- 
+
    getRtpSenderById(id: string): RTCRtpSender | null {
 +    if (this.rtpSenders.hasKey(id)) {
-+      Log.d(TAG, 'getRtpSenderById cache hit: ' + id);
++      Log.d(TAG, '[SenderIdentity] cache hit key=' + id);
 +      return this.rtpSenders.get(id);
 +    }
++
      let senders: Array<RTCRtpSender> = this.peerConnection.getSenders();
-     Log.d(TAG, 'senders length : ' + senders.length);
+-    Log.d(TAG, 'senders length : ' + senders.length);
++    Log.d(TAG, '[SenderIdentity] cache miss key=' + id + ' senders=' + senders.length);
      for (let sender of senders) {
-       Log.d(TAG, 'sender id : ' + sender.id);
-+      Log.d(TAG, 'sender track id : ' + sender.track?.id);
-       Log.d(TAG, ' id : ' + id);
+-      Log.d(TAG, 'sender id : ' + sender.id);
+-      Log.d(TAG, ' id : ' + id);
 -      if (id === sender.id) {
-+      let senderId = this.cacheRtpSender(sender);
++      const senderId = this.cacheRtpSender(sender);
 +      if (id === sender.id || id === sender.track?.id || id === senderId) {
          return sender;
        }
      }
      return null;
    }
- 
+
 +  cacheRtpSender(sender: RTCRtpSender): string {
-+    let senderId = sender.id ?? sender.track?.id ?? this.stateProvider.getNextStreamUUID();
++    const trackId = sender.track?.id;
++    const senderId = sender.id ?? trackId ?? this.stateProvider.getNextStreamUUID();
 +    this.rtpSenders.set(senderId, sender);
++    if (trackId && trackId !== senderId) {
++      this.rtpSenders.set(trackId, sender);
++    }
++    Log.d(TAG, `[SenderIdentity] cached key=${senderId} nativeId=${sender.id} trackId=${trackId}`);
 +    return senderId;
 +  }
 +
    getRtpReceiverById(id: string): RTCRtpReceiver | null {
      let receivers: Array<RTCRtpReceiver> = this.peerConnection.getReceivers();
      Log.d(TAG, 'receivers length : ' + receivers.length);
-@@ -377,7 +391,8 @@ export default class PeerConnectionObserver implements StreamHandler {
+@@ -377,7 +394,8 @@ export default class PeerConnectionObserver implements StreamHandler {
        if (!transceiverId) {
          transceiverId = this.stateProvider.getNextStreamUUID();
        }
 -      transceiversParams.pushMap(transceiverToMap(transceiverId, transceiver));
-+      let senderId = this.cacheRtpSender(transceiver.sender);
++      const senderId = this.cacheRtpSender(transceiver.sender);
 +      transceiversParams.pushMap(transceiverToMap(transceiverId, transceiver, senderId));
      }
      let params = new ConstraintsMap();
      params.putArray('transceivers', transceiversParams.toArrayList());
-@@ -388,7 +403,8 @@ export default class PeerConnectionObserver implements StreamHandler {
+@@ -388,7 +406,8 @@ export default class PeerConnectionObserver implements StreamHandler {
      let senders = this.peerConnection.getSenders();
      let sendersParams = new ConstraintsArray();
      for (let sender of senders) {
 -      sendersParams.pushMap(rtpSenderToMap(sender));
-+      let senderId = this.cacheRtpSender(sender);
++      const senderId = this.cacheRtpSender(sender);
 +      sendersParams.pushMap(rtpSenderToMap(sender, senderId));
      }
      let params = new ConstraintsMap();
      params.putArray('senders', sendersParams.toArrayList());
-@@ -411,6 +427,7 @@ export default class PeerConnectionObserver implements StreamHandler {
+@@ -411,7 +430,8 @@ export default class PeerConnectionObserver implements StreamHandler {
+     transceiver = this.peerConnection.addTransceiver(trackOrKind, this.mapToRtpTransceiverInit(transceiverInit))
      let transceiverId = transceiver?.mid ?? this.stateProvider.getNextStreamUUID();
      this.transceivers.set(transceiverId, transceiver)
 -    result.success(transceiverToMap(transceiverId!, transceiver!))
-+    let senderId = this.cacheRtpSender(transceiver!.sender)
++    const senderId = this.cacheRtpSender(transceiver!.sender)
 +    result.success(transceiverToMap(transceiverId!, transceiver!, senderId))
    }
- 
+
    mapToRtpTransceiverInit(parameters?: DataMap): RTCRtpTransceiverInit | undefined {
-@@ -441,7 +458,8 @@ export default class PeerConnectionObserver implements StreamHandler {
- 
+@@ -442,7 +462,8 @@ export default class PeerConnectionObserver implements StreamHandler {
+
    addTrack(track: MediaStreamTrack, streams: MediaStream[], result: MethodResult) {
      let sender: RTCRtpSender = this.peerConnection.addTrack(track, ...streams);
 -    result.success(rtpSenderToMap(sender));
-+    let senderId = this.cacheRtpSender(sender);
++    const senderId = this.cacheRtpSender(sender);
 +    result.success(rtpSenderToMap(sender, senderId));
    }
- 
+
    removeTrack(senderId: string, result: MethodResult) {
+@@ -489,7 +510,15 @@ export default class PeerConnectionObserver implements StreamHandler {
+       return;
+     }
+     try {
++      const oldTrackId = sender.track?.id ?? '';
++      const newTrackId = track?.id ?? '';
++      Log.i(TAG, `[SenderIdentity] replace START key=${rtpSenderId} oldTrack=${oldTrackId} newTrack=${newTrackId}`);
+       await sender.replaceTrack(track)
++      this.rtpSenders.set(rtpSenderId, sender);
++      if (newTrackId.length > 0) {
++        this.rtpSenders.set(newTrackId, sender);
++      }
++      Log.i(TAG, `[SenderIdentity] replace SUCCESS key=${rtpSenderId} oldTrack=${oldTrackId} newTrack=${newTrackId}`);
+       result.success(null)
+     } catch (e) {
+       this.resultError('rtpSenderSetTrack', JSON.stringify(e), result);
+diff --git a/ohos/src/main/ets/utils/PCOUtils.ets b/ohos/src/main/ets/utils/PCOUtils.ets
+index 61385b1..3d41793 100644
+--- a/ohos/src/main/ets/utils/PCOUtils.ets
++++ b/ohos/src/main/ets/utils/PCOUtils.ets
+@@ -53,12 +53,13 @@ export function candidateToMap(candidate?: RTCIceCandidate): DataMap {
+   return params;
+ }
+
+-export function transceiverToMap(transceiverId: string, transceiver: RTCRtpTransceiver): DataMap {
++export function transceiverToMap(transceiverId: string, transceiver: RTCRtpTransceiver,
++  senderId?: string): DataMap {
+   let params: DataMap = new Map();
+   params.set('transceiverId', transceiverId);
+   params.set('mid', transceiver.mid ?? '');
+   params.set('direction', transceiver.direction);
+-  params.set('sender', rtpSenderToMap(transceiver.sender));
++  params.set('sender', rtpSenderToMap(transceiver.sender, senderId));
+   params.set('receiver', rtpReceiverToMap(transceiver.receiver));
+   return params;
+ }
+@@ -122,11 +123,12 @@ export function rtpParametersToMap(rtpParameters: RTCRtpSendParameters): DataMap
+   return info.toMap();
+ }
+
+-export function rtpSenderToMap(sender: RTCRtpSender): DataMap {
++export function rtpSenderToMap(sender: RTCRtpSender, cachedSenderId?: string): DataMap {
+   let params: DataMap = new Map();
+-  params.set('senderId', sender.id ?? 'senderId');
++  const senderId = cachedSenderId ?? sender.id ?? sender.track?.id ?? 'senderId';
++  params.set('senderId', senderId);
+   params.set('ownsTrack', true);
+-  params.set('dtmfSender', dtmfSenderToMap(sender.dtmf, sender.id));
++  params.set('dtmfSender', dtmfSenderToMap(sender.dtmf, senderId));
+   params.set('rtpParameters', rtpParametersToMap(sender.getParameters()));
+   params.set('track', mediaTrackToMap(sender.track));
+   return params;
